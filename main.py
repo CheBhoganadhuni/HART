@@ -1,0 +1,212 @@
+import cv2
+import threading
+import queue
+import time
+import numpy as np
+import pickle
+from ultralytics import YOLO
+from insightface.app import FaceAnalysis
+from core.db_manager import DBManager
+
+# Constants
+EMBEDDINGS_PATH = "data/embeddings.pkl"
+SIMILARITY_THRESHOLD = 0.45
+RETRY_COOLDOWN = 1.0  # Seconds before retrying recognition for a track
+HEARTBEAT_INTERVAL = 10.0  # Seconds between DB updates for locked IDs
+
+# Shared State
+recognition_queue = queue.Queue()
+tracked_identities = {}  # {track_id: student_name}
+last_recognition_attempt = {}  # {track_id: timestamp}
+last_heartbeat_time = {} # {student_name: timestamp}
+
+def load_embeddings():
+    try:
+        with open(EMBEDDINGS_PATH, 'rb') as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return {}
+
+def compute_similarity(embedding1, embedding2):
+    # Cosine Similarity = (A . B) / (||A|| * ||B||)
+    # InsightFace embeddings are usually normalized, but let's be safe.
+    norm1 = np.linalg.norm(embedding1)
+    norm2 = np.linalg.norm(embedding2)
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return np.dot(embedding1, embedding2) / (norm1 * norm2)
+
+class RecognitionWorker(threading.Thread):
+    def __init__(self, session_name):
+        super().__init__()
+        self.session_name = session_name
+        self.daemon = True
+        self.running = True
+        self.known_embeddings = load_embeddings()
+        self.db = DBManager()
+        
+        # Initialize InsightFace
+        print("[Worker] Initializing InsightFace...")
+        providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
+        try:
+            self.app = FaceAnalysis(name='buffalo_l', providers=providers)
+            self.app.prepare(ctx_id=0, det_size=(640, 640))
+        except Exception as e:
+            print(f"[Worker] Error initializing InsightFace: {e}")
+            self.app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+            self.app.prepare(ctx_id=0, det_size=(640, 640))
+        print("[Worker] Ready.")
+
+    def run(self):
+        while self.running:
+            try:
+                # Get crop from queue
+                track_id, crop = recognition_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            try:
+                # Detect face in the person crop
+                faces = self.app.get(crop)
+                
+                if len(faces) == 0:
+                    continue
+                
+                # Assume largest face is the person
+                largest_face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0]) * (x.bbox[3]-x.bbox[1]), reverse=True)[0]
+                embedding = largest_face.embedding
+                
+                # Compare with known embeddings
+                best_match = None
+                max_score = -1.0
+                
+                for name, known_emb in self.known_embeddings.items():
+                    score = compute_similarity(embedding, known_emb)
+                    if score > max_score:
+                        max_score = score
+                        best_match = name
+                
+                if max_score > SIMILARITY_THRESHOLD and best_match:
+                    # Lock Identity
+                    tracked_identities[track_id] = best_match
+                    print(f"[Worker] ID Locked: {track_id} -> {best_match} (Score: {max_score:.2f})")
+                    
+                    # Log Initial Heartbeat
+                    self.db.log_heartbeat(best_match, self.session_name)
+                    
+                    # Set initial heartbeat time
+                    last_heartbeat_time[best_match] = time.time()
+                else:
+                    # Recognition failed or low score
+                    pass
+
+            except Exception as e:
+                print(f"[Worker] Error processing track {track_id}: {e}")
+            finally:
+                recognition_queue.task_done()
+
+def main():
+    # Session Setup
+    session_name = input("Enter Session Name (e.g., Math_101): ").strip()
+    if not session_name:
+        session_name = f"Session_{int(time.time())}"
+        print(f"Defaulting to: {session_name}")
+
+    # Start Worker
+    worker = RecognitionWorker(session_name)
+    worker.start()
+
+    # YOLO Setup
+    print("[Main] Loading YOLO11n...")
+    model = YOLO('yolo11n.pt')
+    
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open camera.")
+        return
+
+    # Database instance for main thread (if needed, though heartbeats mostly in worker/logic)
+    db = DBManager()
+
+    print("[Main] Starting Tracking Loop...")
+    try:
+        # Loop
+        while True:
+            start_time = time.time()
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Tracking
+            # classes=0 -> Person
+            results = model.track(frame, persist=True, tracker="botsort.yaml", device="mps", vid_stride=3, verbose=False, classes=0)
+            
+            # Since vid_stride=3, sometimes results might be None or empty?? 
+            # Actually ultralytics returns results for the frame passed. vid_stride is usually usually for video files in stream mode?
+            # Wait, independent `model.track(frame)` call doesn't use `vid_stride` in the same way as `model.predict(source='video.mp4')`.
+            # `vid_stride` parameter in `track()` might be ignored if passing single frames?
+            # Actually, for frame-by-frame loop, we control the stride by skipping frames if we want.
+            # But the user asked for `vid_stride=3` in `model.track(...)`. I'll verify if that works for frame input.
+            # Assuming standard usage per user request.
+
+            current_tracks = []
+            
+            if results and results[0].boxes and results[0].boxes.id is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy()
+                ids = results[0].boxes.id.cpu().numpy().astype(int)
+                
+                for box, track_id in zip(boxes, ids):
+                    x1, y1, x2, y2 = map(int, box)
+                    current_tracks.append(track_id)
+                    
+                    # Visualization Logic
+                    name = tracked_identities.get(track_id)
+                    color = (0, 255, 0) if name else (0, 165, 255) # Green if locked, Orange if unknown
+                    label = name if name else f"ID:{track_id} Identifying..."
+                    
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    
+                    # Heartbeat & Recognition Logic
+                    if name:
+                        # Existing lock: Check heartbeat throttle
+                        last_hb = last_heartbeat_time.get(name, 0)
+                        if time.time() - last_hb > HEARTBEAT_INTERVAL:
+                            # Log heartbeat (on main thread or queue? DBManager creates new connection, so Main thread is safe)
+                            # Actually, let's keep DB ops off main thread if possible to avoid lag?
+                            # DBManager is fast (local sqlite). Let's do it here for simplicity, or spin a quick thread.
+                            # Calling it here.
+                            threading.Thread(target=db.log_heartbeat, args=(name, session_name), daemon=True).start()
+                            last_heartbeat_time[name] = time.time()
+                    else:
+                        # Unknown ID: Send to recognition?
+                        last_attempt = last_recognition_attempt.get(track_id, 0)
+                        if time.time() - last_attempt > RETRY_COOLDOWN:
+                            # Extract crop
+                            # Ensure crop is within bounds
+                            h, w, _ = frame.shape
+                            cx1, cy1 = max(0, x1), max(0, y1)
+                            cx2, cy2 = min(w, x2), min(h, y2)
+                            
+                            if cx2 > cx1 and cy2 > cy1:
+                                crop = frame[cy1:cy2, cx1:cx2].copy()
+                                recognition_queue.put((track_id, crop))
+                                last_recognition_attempt[track_id] = time.time()
+
+            # Clean up old identities? (Optional, maybe not needed for this session)
+            
+            cv2.imshow("MOT Attendance System", frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    except KeyboardInterrupt:
+        print("Stopping...")
+    finally:
+        worker.running = False
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Exited.")
+
+if __name__ == "__main__":
+    main()

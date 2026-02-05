@@ -46,9 +46,15 @@ def register_student():
         print("Name cannot be empty.")
         return
 
-    # Check if student exists in DB or Pickle?
-    # Better to check DB, but we also need to append to pickle.
-    
+    # Check if student exists
+    data = load_embeddings()
+    if student_name in data:
+        print(f"Warning: Student '{student_name}' already exists.")
+        choice = input("Overwrite? (y/N): ").lower()
+        if choice != 'y':
+            print("Registration cancelled.")
+            return
+
     print(f"Initializing Camera and Model for {student_name}...")
     app = get_face_analysis()
     

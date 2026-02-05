@@ -39,6 +39,13 @@ class DBManager:
             )
         ''')
         
+        # Schema Migration: Check if session_name column exists
+        try:
+            cursor.execute('SELECT session_name FROM attendance_logs LIMIT 1')
+        except sqlite3.OperationalError:
+            print("[DB] Adding missing column 'session_name' to attendance_logs")
+            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN session_name TEXT DEFAULT "Default Session"')
+        
         conn.commit()
         conn.close()
 
@@ -54,8 +61,37 @@ class DBManager:
             print(f"[DB] Error registering student: {e}")
         finally:
             conn.close()
+            
+    def delete_student(self, name):
+        """Deletes a student from the database."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM students WHERE name = ?", (name,))
+            # Optional: Delete logs too? Usually better to keep logs for history, 
+            # but user said "Delete a specific student", implies full cleanup.
+            # Let's keep logs for now unless requested, or maybe delete for privacy.
+            # I'll stick to deleting the student registration.
+            changes = cursor.rowcount
+            conn.commit()
+            print(f"[DB] Student '{name}' deleted from database. Rows affected: {changes}")
+            return changes > 0
+        except Exception as e:
+            print(f"[DB] Error deleting student: {e}")
+            return False
+        finally:
+            conn.close()
+            
+    def get_all_students(self):
+        """Returns a list of all registered student names."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM students")
+        rows = cursor.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
 
-    def log_heartbeat(self, student_name):
+    def log_heartbeat(self, student_name, session_name="Class Session"):
         """
         Updates the last_seen timestamp for the student.
         Logic:
@@ -77,16 +113,16 @@ class DBManager:
         
         row = cursor.fetchone()
         
+        status = "UNKNOWN"
+        
         if row:
             session_id, last_seen_str, session_start_str = row
-            # SQLite stores timestamps as strings by default usually, handle parsing
             try:
-                last_seen = datetime.fromisoformat(last_seen_str)
-                session_start = datetime.fromisoformat(session_start_str)
+                last_seen = datetime.fromisoformat(last_seen_str) if 'T' in last_seen_str else datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
+                session_start = datetime.fromisoformat(session_start_str) if 'T' in session_start_str else datetime.strptime(session_start_str, "%Y-%m-%d %H:%M:%S.%f")
             except ValueError:
-                # Handle cases where format might differ slightly
-                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
-                session_start = datetime.strptime(session_start_str, "%Y-%m-%d %H:%M:%S.%f")
+                 last_seen = now
+                 session_start = now
 
             time_diff = (now - last_seen).total_seconds()
             
@@ -102,16 +138,16 @@ class DBManager:
             else:
                 # Gap too large, start new session
                 cursor.execute('''
-                    INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds)
-                    VALUES (?, ?, ?, 0)
-                ''', (student_name, now, now))
+                    INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds, session_name)
+                    VALUES (?, ?, ?, 0, ?)
+                ''', (student_name, now, now, session_name))
                 status = "NEW_SESSION"
         else:
             # No previous record, start first session
             cursor.execute('''
-                INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds)
-                VALUES (?, ?, ?, 0)
-            ''', (student_name, now, now))
+                INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds, session_name)
+                VALUES (?, ?, ?, 0, ?)
+            ''', (student_name, now, now, session_name))
             status = "NEW_SESSION"
             
         conn.commit()
