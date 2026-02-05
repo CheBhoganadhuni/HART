@@ -1,4 +1,5 @@
 import cv2
+import os
 import threading
 import queue
 import time
@@ -20,6 +21,8 @@ tracked_identities = {}  # {track_id: student_name}
 last_recognition_attempt = {}  # {track_id: timestamp}
 last_heartbeat_time = {} # {student_name: timestamp}
 reid_events = {} # {track_id: start_time} for UI tag
+track_start_time = {} # {track_id: timestamp}
+saved_unknowns = set() # {track_id}
 
 def load_embeddings():
     try:
@@ -140,29 +143,57 @@ def main():
     worker = RecognitionWorker(session_name)
     worker.start()
 
-    # YOLO Setup
-    print("[Main] Loading YOLO11n...")
-    model = YOLO('yolo11n.pt')
+    # Input Source Selection
+    source = input("Enter Input Source (0 for Webcam, or path to mp4): ").strip()
+    is_video_file = False
+    source_fps = 30.0
+    total_frames = 0
     
-    cap = cv2.VideoCapture(0)
+    if source == '0':
+        cap = cv2.VideoCapture(0)
+    else:
+        if os.path.exists(source):
+            cap = cv2.VideoCapture(source)
+            is_video_file = True
+            source_fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        else:
+            print(f"Error: File '{source}' not found.")
+            return
+
     if not cap.isOpened():
-        print("Error: Could not open camera.")
+        print("Error: Could not open source.")
         return
+
+    # M4 Optimization & WaitKey Setup
+    # Speed Optimization: Stride 3 for both (User requested stride 3 for MP4 for speed)
+    vid_stride = 3
+    wait_ms = int(1000 / source_fps) if is_video_file else 1
+    
+    # YOLO Setup
+    print(f"[Main] Loading YOLO11n... (Video Mode: {is_video_file}, Stride: {vid_stride})")
+    model = YOLO('yolo11n.pt')
 
     # Database instance for main thread (if needed, though heartbeats mostly in worker/logic)
     db = DBManager()
 
+
     print("[Main] Starting Tracking Loop...")
+    session_start_time = time.time()
     try:
         # Loop
+        frame_idx = 0
         while True:
             start_time = time.time()
             ret, frame = cap.read()
             if not ret:
+                print("End of stream.")
                 break
+            
+            frame_idx += 1
 
             # Performance Tuning: Agnostic NMS, Disable Augmentation, Use Custom Tracker
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", vid_stride=3, verbose=False, classes=0, iou=0.5, conf=0.5, agnostic_nms=True, augment=False)
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", vid_stride=vid_stride, verbose=False, classes=0, iou=0.5, conf=0.5, agnostic_nms=True, augment=False)
             
             current_tracks = []
             
@@ -224,6 +255,32 @@ def main():
                     color = (0, 255, 0) if name else (0, 165, 255) # Green if locked, Orange if unknown
                     label = name if name else f"ID:{track_id} Identifying..."
                     
+                    # Unknown Logging Logic
+                    if not name:
+                        if track_id not in track_start_time:
+                            track_start_time[track_id] = time.time()
+                        elif time.time() - track_start_time[track_id] > 15.0:
+                            # Alert: Unknown person > 15s
+                             if track_id not in saved_unknowns:
+                                 unknown_dir = "data/unknown_faces"
+                                 os.makedirs(unknown_dir, exist_ok=True)
+                                 # Crop face
+                                 h, w, _ = frame.shape
+                                 cx1, cy1, cx2, cy2 = map(int, det['box'])
+                                 cx1, cy1 = max(0, cx1), max(0, cy1)
+                                 cx2, cy2 = min(w, cx2), min(h, cy2)
+                                 
+                                 if cx2 > cx1 and cy2 > cy1:
+                                     face_img = frame[cy1:cy2, cx1:cx2].copy()
+                                     filename = f"{unknown_dir}/unknown_{session_name}_{track_id}.jpg"
+                                     cv2.imwrite(filename, face_img)
+                                     print(f"[Alert] Saved unknown face: {filename}")
+                                     saved_unknowns.add(track_id)
+                    else:
+                        # If identified, remove from start time tracker to save memory?
+                        if track_id in track_start_time:
+                            del track_start_time[track_id]
+                    
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                     
@@ -284,17 +341,30 @@ def main():
             fps = 1.0 / (time.time() - start_time) if (time.time() - start_time) > 0 else 0
             live_count = len(current_tracks)
             verified_count = sum(1 for tid in current_tracks if tid in tracked_identities)
+            unknown_count = live_count - verified_count
             
-            stats_text = f"FPS: {fps:.1f} | Live: {live_count} | Verified: {verified_count}"
-            cv2.putText(frame, stats_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            stats_text = f"FPS: {fps:.1f} | Live: {live_count} | Verified: {verified_count} | Unknown: {unknown_count}"
+            
+            # Progress % and Time Elapsed for Video
+            if is_video_file:
+                elapsed = time.time() - session_start_time
+                elapsed_str = time.strftime("%M:%S", time.gmtime(elapsed))
+                
+                if total_frames > 0:
+                    progress = int((frame_idx / total_frames) * 100)
+                    stats_text += f" | Prog: {progress}% | Time: {elapsed_str}"
+                else:
+                    stats_text += f" | Time: {elapsed_str}"
+
+            cv2.putText(frame, stats_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
             # 3. Recording Indicator (Green Dot)
             cv2.circle(frame, (w_frame - 30, 25), 10, (0, 255, 0), -1)
             cv2.putText(frame, "REC", (w_frame - 80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-            cv2.imshow("MOT Attendance System", frame)
+            cv2.imshow(f"MOT Attendance System - {session_name}", frame)
             
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(wait_ms) & 0xFF == ord('q'):
                 break
 
     except KeyboardInterrupt:
@@ -303,7 +373,9 @@ def main():
         worker.running = False
         cap.release()
         cv2.destroyAllWindows()
-        print("Exited.")
+        
+        total_time = (time.time() - session_start_time) / 60
+        print(f"\nExited. Total Processing Time: {total_time:.2f} minutes")
 
 if __name__ == "__main__":
     main()
