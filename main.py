@@ -12,50 +12,56 @@ from core.db_manager import DBManager
 # Constants
 EMBEDDINGS_PATH = "data/embeddings.pkl"
 SIMILARITY_THRESHOLD = 0.45
-RETRY_COOLDOWN = 1.0  # Seconds before retrying recognition for a track
-HEARTBEAT_INTERVAL = 10.0  # Seconds between DB updates for locked IDs
+RETRY_COOLDOWN = 1.0 
+HEARTBEAT_INTERVAL = 10.0 
+UNKNOWN_SAVE_THRESHOLD = 15.0 # Increased for stability
 
 # Shared State
-recognition_queue = queue.Queue()
-tracked_identities = {}  # {track_id: student_name}
-last_recognition_attempt = {}  # {track_id: timestamp}
-last_heartbeat_time = {} # {student_name: timestamp}
-reid_events = {} # {track_id: start_time} for UI tag
-track_start_time = {} # {track_id: timestamp}
-saved_unknowns = set() # {track_id}
+recognition_queue = queue.Queue(maxsize=10)
+tracked_identities = {} 
+last_recognition_attempt = {} 
+last_heartbeat_time = {} 
+reid_events = {} 
+track_start_time = {} 
+saved_unknowns = set()
 
-def load_embeddings():
-    try:
-        with open(EMBEDDINGS_PATH, 'rb') as f:
-            return pickle.load(f)
-    except FileNotFoundError:
-        return {}
+class AsyncVideoStream:
+    """Dedicated thread for high-speed frame decoding."""
+    def __init__(self, source, stride=1):
+        self.cap = cv2.VideoCapture(source if source != '0' else 0)
+        self.stride = stride
+        self.queue = queue.Queue(maxsize=64)
+        self.stopped = False
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
 
-def compute_similarity(embedding1, embedding2):
-    # Cosine Similarity = (A . B) / (||A|| * ||B||)
-    # InsightFace embeddings are usually normalized, but let's be safe.
-    norm1 = np.linalg.norm(embedding1)
-    norm2 = np.linalg.norm(embedding2)
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    return np.dot(embedding1, embedding2) / (norm1 * norm2)
+    def start(self):
+        threading.Thread(target=self.update, daemon=True).start()
+        return self
 
-def calc_iou(box1, box2):
-    """Calculates Intersection over Union (IoU) between two bounding boxes."""
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
+    def update(self):
+        frame_idx = 0
+        while not self.stopped:
+            if not self.queue.full():
+                # Skip frames physically for MP4 speedup
+                for _ in range(self.stride - 1):
+                    self.cap.grab()
+                
+                ret, frame = self.cap.read()
+                if not ret:
+                    self.stopped = True
+                    return
+                self.queue.put((frame_idx, frame))
+                frame_idx += self.stride
+            else:
+                time.sleep(0.01)
 
-    intersection_area = max(0, x2 - x1) * max(0, y2 - y1)
-    
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-    
-    union_area = box1_area + box2_area - intersection_area
-    if union_area == 0:
-        return 0
-    return intersection_area / union_area
+    def read(self):
+        return self.queue.get()
+
+    def stop(self):
+        self.stopped = True
+        self.cap.release()
 
 class RecognitionWorker(threading.Thread):
     def __init__(self, session_name):
@@ -66,316 +72,112 @@ class RecognitionWorker(threading.Thread):
         self.known_embeddings = load_embeddings()
         self.db = DBManager()
         
-        # Initialize InsightFace
-        print("[Worker] Initializing InsightFace...")
         providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
-        try:
-            self.app = FaceAnalysis(name='buffalo_l', providers=providers)
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
-        except Exception as e:
-            print(f"[Worker] Error initializing InsightFace: {e}")
-            self.app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
-        print("[Worker] Ready.")
+        self.app = FaceAnalysis(name='buffalo_l', providers=providers)
+        self.app.prepare(ctx_id=0, det_size=(640, 640))
 
     def run(self):
         while self.running:
             try:
-                # Get crop from queue
                 track_id, crop = recognition_queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
+            except queue.Empty: continue
 
             try:
-                # Detect face in the person crop
                 faces = self.app.get(crop)
+                if not faces: continue
                 
-                if len(faces) == 0:
-                    continue
-                
-                # Assume largest face is the person
-                largest_face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0]) * (x.bbox[3]-x.bbox[1]), reverse=True)[0]
-                embedding = largest_face.embedding
-                
-                # Compare with known embeddings
-                best_match = None
-                max_score = -1.0
+                face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
+                best_match, max_score = None, -1.0
                 
                 for name, known_emb in self.known_embeddings.items():
-                    score = compute_similarity(embedding, known_emb)
+                    score = np.dot(face.embedding, known_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(known_emb))
                     if score > max_score:
-                        max_score = score
-                        best_match = name
+                        max_score, best_match = score, name
                 
-                    if max_score > SIMILARITY_THRESHOLD and best_match:
-                        # Lock Identity
-                        tracked_identities[track_id] = best_match
-                        
-                        # Re-ID Trigger Logic: 
-                        # If this person was seen recently (heartbeat exists), trigger Re-ID tag
-                        if best_match in last_heartbeat_time:
-                             reid_events[track_id] = time.time()
-                             
-                        print(f"[Worker] ID Locked: {track_id} -> {best_match} (Score: {max_score:.2f})")
-                        
-                        # Log Initial Heartbeat
-                        self.db.log_heartbeat(best_match, self.session_name)
-                        
-                        # Set initial heartbeat time
-                        last_heartbeat_time[best_match] = time.time()
-                else:
-                    # Recognition failed or low score
-                    pass
+                if max_score > SIMILARITY_THRESHOLD:
+                    tracked_identities[track_id] = best_match
+                    if best_match in last_heartbeat_time:
+                         reid_events[track_id] = time.time()
+                    threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
+                    last_heartbeat_time[best_match] = time.time()
+            except Exception as e: print(f"Worker Error: {e}")
+            finally: recognition_queue.task_done()
 
-            except Exception as e:
-                print(f"[Worker] Error processing track {track_id}: {e}")
-            finally:
-                recognition_queue.task_done()
+def load_embeddings():
+    try:
+        with open(EMBEDDINGS_PATH, 'rb') as f: return pickle.load(f)
+    except: return {}
+
+def calc_iou(box1, box2):
+    x1, y1 = max(box1[0], box2[0]), max(box1[1], box2[1])
+    x2, y2 = min(box1[2], box2[2]), min(box1[3], box2[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area1 = (box1[2]-box1[0])*(box1[3]-box1[1])
+    area2 = (box2[2]-box2[0])*(box2[3]-box2[1])
+    return inter / (area1 + area2 - inter + 1e-6)
 
 def main():
-    # Session Setup
-    session_name = input("Enter Session Name (e.g., Math_101): ").strip()
-    if not session_name:
-        session_name = f"Session_{int(time.time())}"
-        print(f"Defaulting to: {session_name}")
-
-    # Start Worker
-    worker = RecognitionWorker(session_name)
-    worker.start()
-
-    # Input Source Selection
-    source = input("Enter Input Source (0 for Webcam, or path to mp4): ").strip()
-    is_video_file = False
-    source_fps = 30.0
-    total_frames = 0
+    session_name = input("Session Name: ").strip() or f"Session_{int(time.time())}"
+    worker = RecognitionWorker(session_name).start()
     
-    if source == '0':
-        cap = cv2.VideoCapture(0)
-    else:
-        if os.path.exists(source):
-            cap = cv2.VideoCapture(source)
-            is_video_file = True
-            source_fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        else:
-            print(f"Error: File '{source}' not found.")
-            return
-
-    if not cap.isOpened():
-        print("Error: Could not open source.")
-        return
-
-    # M4 Optimization & WaitKey Setup
-    # Speed Optimization: Stride 3 for both (User requested stride 3 for MP4 for speed)
-    vid_stride = 3
-    wait_ms = int(1000 / source_fps) if is_video_file else 1
+    source = input("Source (0/Path): ").strip()
+    is_mp4 = source != '0'
+    stream = AsyncVideoStream(source, stride=2 if is_mp4 else 3).start()
     
-    # YOLO Setup
-    print(f"[Main] Loading YOLO11n... (Video Mode: {is_video_file}, Stride: {vid_stride})")
     model = YOLO('yolo11n.pt')
-
-    # Database instance for main thread (if needed, though heartbeats mostly in worker/logic)
-    db = DBManager()
-
-
-    print("[Main] Starting Tracking Loop...")
-    session_start_time = time.time()
+    session_start = time.time()
+    
     try:
-        # Loop
-        frame_idx = 0
-        while True:
-            start_time = time.time()
-            ret, frame = cap.read()
-            if not ret:
-                print("End of stream.")
-                break
+        while not stream.stopped or not stream.queue.empty():
+            loop_start = time.time()
+            frame_idx, frame = stream.read()
             
-            frame_idx += 1
-
-            # Performance Tuning: Agnostic NMS, Disable Augmentation, Use Custom Tracker
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", vid_stride=vid_stride, verbose=False, classes=0, iou=0.5, conf=0.5, agnostic_nms=True, augment=False)
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True)
             
-            current_tracks = []
-            
-            if results and results[0].boxes and results[0].boxes.id is not None:
+            current_ids = []
+            if results and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
                 ids = results[0].boxes.id.cpu().numpy().astype(int)
-                confs = results[0].boxes.conf.cpu().numpy()
                 
-                # Combine into a list of dicts for easier filtering
-                detections = []
-                for box, track_id, conf in zip(boxes, ids, confs):
-                    detections.append({
-                        'box': box,
-                        'id': track_id,
-                        'conf': conf,
-                        'locked': track_id in tracked_identities
-                    })
-                
-                # Overlap Suppression Logic
-                keep_indices = set(range(len(detections)))
-                for i in range(len(detections)):
-                    if i not in keep_indices: continue
-                    for j in range(i + 1, len(detections)):
-                        if j not in keep_indices: continue
-                        
-                        det1 = detections[i]
-                        det2 = detections[j]
-                        
-                        iou = calc_iou(det1['box'], det2['box'])
-                        if iou > 0.7:
-                            # Suppression required
-                            drop_idx = -1
-                            
-                            # Priority 1: Keep Locked ID
-                            if det1['locked'] and not det2['locked']:
-                                drop_idx = j
-                            elif not det1['locked'] and det2['locked']:
-                                drop_idx = i
-                            # Priority 2: Higher Confidence
-                            else:
-                                if det1['conf'] >= det2['conf']:
-                                    drop_idx = j
-                                else:
-                                    drop_idx = i
-                            
-                            if drop_idx != -1:
-                                keep_indices.discard(drop_idx)
-                                
-                # Display remaining tracks
-                for idx in keep_indices:
-                    det = detections[idx]
-                    x1, y1, x2, y2 = map(int, det['box'])
-                    track_id = det['id']
+                for box, tid in zip(boxes, ids):
+                    current_ids.append(tid)
+                    name = tracked_identities.get(tid)
                     
-                    current_tracks.append(track_id)
-                    
-                    # Visualization Logic
-                    name = tracked_identities.get(track_id)
-                    color = (0, 255, 0) if name else (0, 165, 255) # Green if locked, Orange if unknown
-                    label = name if name else f"ID:{track_id} Identifying..."
-                    
-                    # Unknown Logging Logic
                     if not name:
-                        if track_id not in track_start_time:
-                            track_start_time[track_id] = time.time()
-                        elif time.time() - track_start_time[track_id] > 15.0:
-                            # Alert: Unknown person > 15s
-                             if track_id not in saved_unknowns:
-                                 unknown_dir = "data/unknown_faces"
-                                 os.makedirs(unknown_dir, exist_ok=True)
-                                 # Crop face
-                                 h, w, _ = frame.shape
-                                 cx1, cy1, cx2, cy2 = map(int, det['box'])
-                                 cx1, cy1 = max(0, cx1), max(0, cy1)
-                                 cx2, cy2 = min(w, cx2), min(h, cy2)
-                                 
-                                 if cx2 > cx1 and cy2 > cy1:
-                                     face_img = frame[cy1:cy2, cx1:cx2].copy()
-                                     filename = f"{unknown_dir}/unknown_{session_name}_{track_id}.jpg"
-                                     cv2.imwrite(filename, face_img)
-                                     print(f"[Alert] Saved unknown face: {filename}")
-                                     saved_unknowns.add(track_id)
-                    else:
-                        # If identified, remove from start time tracker to save memory?
-                        if track_id in track_start_time:
-                            del track_start_time[track_id]
+                        if tid not in track_start_time: track_start_time[tid] = time.time()
+                        elif time.time() - track_start_time[tid] > UNKNOWN_SAVE_THRESHOLD:
+                            if tid not in saved_unknowns:
+                                os.makedirs("data/unknown_faces", exist_ok=True)
+                                face = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
+                                cv2.imwrite(f"data/unknown_faces/unknown_{session_name}_{tid}.jpg", face)
+                                saved_unknowns.add(tid)
                     
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                    
-                    # Re-ID Tag Visualization
-                    if track_id in reid_events:
-                        if time.time() - reid_events[track_id] < 2.0:
-                            # Draw "Re-ID" tag
-                            cv2.rectangle(frame, (x1, y1 - 35), (x1 + 60, y1 - 15), (255, 0, 0), -1) # Blue bg
-                            cv2.putText(frame, "Re-ID", (x1 + 5, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                        else:
-                             # Cleanup old event
-                             del reid_events[track_id]
-                    
-                    # Heartbeat & Recognition Logic
-                    if name:
-                        # Existing lock: Check heartbeat throttle
-                        last_hb = last_heartbeat_time.get(name, 0)
-                        if time.time() - last_hb > HEARTBEAT_INTERVAL:
-                            # Log heartbeat (on main thread or queue? DBManager creates new connection, so Main thread is safe)
-                            # Actually, let's keep DB ops off main thread if possible to avoid lag?
-                            # DBManager is fast (local sqlite). Let's do it here for simplicity, or spin a quick thread.
-                            # Calling it here.
-                            threading.Thread(target=db.log_heartbeat, args=(name, session_name), daemon=True).start()
-                            last_heartbeat_time[name] = time.time()
-                    else:
-                        # Unknown ID: Send to recognition?
-                        last_attempt = last_recognition_attempt.get(track_id, 0)
-                        if time.time() - last_attempt > RETRY_COOLDOWN:
-                            # Extract crop
-                            # Ensure crop is within bounds
-                            h, w, _ = frame.shape
-                            cx1, cy1 = max(0, x1), max(0, y1)
-                            cx2, cy2 = min(w, x2), min(h, y2)
-                            
-                            if cx2 > cx1 and cy2 > cy1:
-                                crop = frame[cy1:cy2, cx1:cx2].copy()
-                                
-                                # Virtual Zoom: Upscale small faces (e.g., height < 120px)
-                                h_crop, w_crop = crop.shape[:2]
-                                if h_crop < 120 or w_crop < 120:
-                                    crop = cv2.resize(crop, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                                
-                                recognition_queue.put((track_id, crop))
-                                last_recognition_attempt[track_id] = time.time()
+                    # Recognition Trigger
+                    if not name and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
+                        crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
+                        if crop.size > 0:
+                            if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
+                            recognition_queue.put((tid, crop))
+                            last_recognition_attempt[tid] = time.time()
 
-            # Clean up old identities? (Optional, maybe not needed for this session)
-            
-            # UI Dashboard Overlay
-            h_frame, w_frame = frame.shape[:2]
-            
-            # 1. Semi-transparent Top Bar
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (w_frame, 50), (0, 0, 0), -1)
-            alpha = 0.6
-            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-            
-            # 2. Stats
-            fps = 1.0 / (time.time() - start_time) if (time.time() - start_time) > 0 else 0
-            live_count = len(current_tracks)
-            verified_count = sum(1 for tid in current_tracks if tid in tracked_identities)
-            unknown_count = live_count - verified_count
-            
-            stats_text = f"FPS: {fps:.1f} | Live: {live_count} | Verified: {verified_count} | Unknown: {unknown_count}"
-            
-            # Progress % and Time Elapsed for Video
-            if is_video_file:
-                elapsed = time.time() - session_start_time
-                elapsed_str = time.strftime("%M:%S", time.gmtime(elapsed))
-                
-                if total_frames > 0:
-                    progress = int((frame_idx / total_frames) * 100)
-                    stats_text += f" | Prog: {progress}% | Time: {elapsed_str}"
-                else:
-                    stats_text += f" | Time: {elapsed_str}"
+                    # UI Drawing
+                    color = (0, 255, 0) if name else (0, 165, 255)
+                    label = name if name else f"ID:{tid} Identifying..."
+                    cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
+                    cv2.putText(frame, label, (int(box[0]), int(box[1])-10), 1, 1, color, 2)
 
-            cv2.putText(frame, stats_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Dashboard
+            fps = 1.0 / (time.time() - loop_start)
+            elapsed = time.strftime("%M:%S", time.gmtime(time.time() - session_start))
+            prog = f" | {int((frame_idx/stream.total_frames)*100)}%" if is_mp4 else ""
+            cv2.putText(frame, f"FPS: {fps:.1f} | Live: {len(current_ids)} | {elapsed}{prog}", (20, 30), 1, 1.2, (255,255,255), 2)
             
-            # 3. Recording Indicator (Green Dot)
-            cv2.circle(frame, (w_frame - 30, 25), 10, (0, 255, 0), -1)
-            cv2.putText(frame, "REC", (w_frame - 80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.imshow("Attendance Pro", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'): break
 
-            cv2.imshow(f"MOT Attendance System - {session_name}", frame)
-            
-            if cv2.waitKey(wait_ms) & 0xFF == ord('q'):
-                break
-
-    except KeyboardInterrupt:
-        print("Stopping...")
     finally:
-        worker.running = False
-        cap.release()
+        stream.stop()
         cv2.destroyAllWindows()
-        
-        total_time = (time.time() - session_start_time) / 60
-        print(f"\nExited. Total Processing Time: {total_time:.2f} minutes")
+        print(f"Done. Processed in {((time.time()-session_start)/60):.2f}m")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
