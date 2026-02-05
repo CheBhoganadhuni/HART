@@ -23,7 +23,11 @@ last_recognition_attempt = {}
 last_heartbeat_time = {} 
 reid_events = {} 
 track_start_time = {} 
+track_start_time = {} 
 saved_unknowns = set()
+blacklisted_tracks = set() # {track_id} - Ignore for recognition after timeout
+last_seen_time = {} # {student_name: timestamp} - For final flush
+session_cache = {} # {student_name: embedding} - Priority cache for re-identification
 
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
@@ -89,13 +93,25 @@ class RecognitionWorker(threading.Thread):
                 face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
                 best_match, max_score = None, -1.0
                 
-                for name, known_emb in self.known_embeddings.items():
-                    score = np.dot(face.embedding, known_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(known_emb))
-                    if score > max_score:
-                        max_score, best_match = score, name
+                # 1. Priority Recognition: Check Session Cache first
+                # If a person was already identified in this session, match them faster/easier
+                for name, cached_emb in session_cache.items():
+                    score = np.dot(face.embedding, cached_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(cached_emb))
+                    if score > 0.40: # Lower threshold for session recall
+                         max_score, best_match = score, name
+                         print(f"[Worker] Priority Re-ID: {name} ({score:.2f})")
+                         break
+                
+                # 2. Standard Search: If no cache match, check full DB
+                if not best_match:
+                    for name, known_emb in self.known_embeddings.items():
+                        score = np.dot(face.embedding, known_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(known_emb))
+                        if score > max_score:
+                            max_score, best_match = score, name
                 
                 if max_score > SIMILARITY_THRESHOLD:
                     tracked_identities[track_id] = best_match
+                    session_cache[best_match] = face.embedding # Update cache with latest look
                     if best_match in last_heartbeat_time:
                          reid_events[track_id] = time.time()
                     threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
@@ -132,7 +148,8 @@ def main():
             loop_start = time.time()
             frame_idx, frame = stream.read()
             
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True)
+            # Dynamic Detection: Lower conf to 0.3 for better recall
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.3)
             
             current_ids = []
             if results and results[0].boxes.id is not None:
@@ -145,15 +162,22 @@ def main():
                     
                     if not name:
                         if tid not in track_start_time: track_start_time[tid] = time.time()
-                        elif time.time() - track_start_time[tid] > UNKNOWN_SAVE_THRESHOLD:
+                        elif time.time() - track_start_time[tid] > 5.0:
+                             # Unknown Throttling: Blacklist after 5s
+                             blacklisted_tracks.add(tid)
+                        
+                        if time.time() - track_start_time.get(tid, time.time()) > UNKNOWN_SAVE_THRESHOLD:
                             if tid not in saved_unknowns:
                                 os.makedirs("data/unknown_faces", exist_ok=True)
                                 face = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
                                 cv2.imwrite(f"data/unknown_faces/unknown_{session_name}_{tid}.jpg", face)
                                 saved_unknowns.add(tid)
+                    else:
+                        # Update last seen time for known students
+                        last_seen_time[name] = time.time()
                     
                     # Recognition Trigger
-                    if not name and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
+                    if not name and tid not in blacklisted_tracks and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
                         crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
                         if crop.size > 0:
                             if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
@@ -163,6 +187,12 @@ def main():
                     # UI Drawing
                     color = (0, 255, 0) if name else (0, 165, 255)
                     label = name if name else f"ID:{tid} Identifying..."
+                    
+                    # Graceful Unknowns: Visitor Mode
+                    if tid in blacklisted_tracks and not name:
+                        color = (192, 192, 192) # Gray
+                        label = f"Visitor ID:{tid}"
+                    
                     cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
                     cv2.putText(frame, label, (int(box[0]), int(box[1])-10), 1, 1, color, 2)
 
@@ -179,5 +209,13 @@ def main():
         stream.stop()
         cv2.destroyAllWindows()
         print(f"Done. Processed in {((time.time()-session_start)/60):.2f}m")
+        
+        # Final Cleanup: Flush recent heartbeats
+        print("Flushing final heartbeats...")
+        db = DBManager() # New instance for main thread cleanup
+        for name, timestamp in last_seen_time.items():
+            if time.time() - timestamp < 5.0:
+                print(f"Logging final heartbeat for: {name}")
+                db.log_heartbeat(name, session_name)
 
 if __name__ == "__main__": main()
