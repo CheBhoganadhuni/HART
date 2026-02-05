@@ -19,6 +19,7 @@ recognition_queue = queue.Queue()
 tracked_identities = {}  # {track_id: student_name}
 last_recognition_attempt = {}  # {track_id: timestamp}
 last_heartbeat_time = {} # {student_name: timestamp}
+reid_events = {} # {track_id: start_time} for UI tag
 
 def load_embeddings():
     try:
@@ -103,16 +104,22 @@ class RecognitionWorker(threading.Thread):
                         max_score = score
                         best_match = name
                 
-                if max_score > SIMILARITY_THRESHOLD and best_match:
-                    # Lock Identity
-                    tracked_identities[track_id] = best_match
-                    print(f"[Worker] ID Locked: {track_id} -> {best_match} (Score: {max_score:.2f})")
-                    
-                    # Log Initial Heartbeat
-                    self.db.log_heartbeat(best_match, self.session_name)
-                    
-                    # Set initial heartbeat time
-                    last_heartbeat_time[best_match] = time.time()
+                    if max_score > SIMILARITY_THRESHOLD and best_match:
+                        # Lock Identity
+                        tracked_identities[track_id] = best_match
+                        
+                        # Re-ID Trigger Logic: 
+                        # If this person was seen recently (heartbeat exists), trigger Re-ID tag
+                        if best_match in last_heartbeat_time:
+                             reid_events[track_id] = time.time()
+                             
+                        print(f"[Worker] ID Locked: {track_id} -> {best_match} (Score: {max_score:.2f})")
+                        
+                        # Log Initial Heartbeat
+                        self.db.log_heartbeat(best_match, self.session_name)
+                        
+                        # Set initial heartbeat time
+                        last_heartbeat_time[best_match] = time.time()
                 else:
                     # Recognition failed or low score
                     pass
@@ -154,9 +161,8 @@ def main():
             if not ret:
                 break
 
-            # Tracking
-            # classes=0 -> Person
-            results = model.track(frame, persist=True, tracker="botsort.yaml", device="mps", vid_stride=3, verbose=False, classes=0, iou=0.5, conf=0.5)
+            # Performance Tuning: Agnostic NMS, Disable Augmentation, Use Custom Tracker
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", vid_stride=3, verbose=False, classes=0, iou=0.5, conf=0.5, agnostic_nms=True, augment=False)
             
             current_tracks = []
             
@@ -221,6 +227,16 @@ def main():
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                     
+                    # Re-ID Tag Visualization
+                    if track_id in reid_events:
+                        if time.time() - reid_events[track_id] < 2.0:
+                            # Draw "Re-ID" tag
+                            cv2.rectangle(frame, (x1, y1 - 35), (x1 + 60, y1 - 15), (255, 0, 0), -1) # Blue bg
+                            cv2.putText(frame, "Re-ID", (x1 + 5, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        else:
+                             # Cleanup old event
+                             del reid_events[track_id]
+                    
                     # Heartbeat & Recognition Logic
                     if name:
                         # Existing lock: Check heartbeat throttle
@@ -244,11 +260,38 @@ def main():
                             
                             if cx2 > cx1 and cy2 > cy1:
                                 crop = frame[cy1:cy2, cx1:cx2].copy()
+                                
+                                # Virtual Zoom: Upscale small faces (e.g., height < 120px)
+                                h_crop, w_crop = crop.shape[:2]
+                                if h_crop < 120 or w_crop < 120:
+                                    crop = cv2.resize(crop, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                                
                                 recognition_queue.put((track_id, crop))
                                 last_recognition_attempt[track_id] = time.time()
 
             # Clean up old identities? (Optional, maybe not needed for this session)
             
+            # UI Dashboard Overlay
+            h_frame, w_frame = frame.shape[:2]
+            
+            # 1. Semi-transparent Top Bar
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (w_frame, 50), (0, 0, 0), -1)
+            alpha = 0.6
+            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+            
+            # 2. Stats
+            fps = 1.0 / (time.time() - start_time) if (time.time() - start_time) > 0 else 0
+            live_count = len(current_tracks)
+            verified_count = sum(1 for tid in current_tracks if tid in tracked_identities)
+            
+            stats_text = f"FPS: {fps:.1f} | Live: {live_count} | Verified: {verified_count}"
+            cv2.putText(frame, stats_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            
+            # 3. Recording Indicator (Green Dot)
+            cv2.circle(frame, (w_frame - 30, 25), 10, (0, 255, 0), -1)
+            cv2.putText(frame, "REC", (w_frame - 80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
             cv2.imshow("MOT Attendance System", frame)
             
             if cv2.waitKey(1) & 0xFF == ord('q'):
