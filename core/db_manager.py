@@ -73,6 +73,14 @@ class DBManager:
             # Let's keep logs for now unless requested, or maybe delete for privacy.
             # I'll stick to deleting the student registration.
             changes = cursor.rowcount
+            
+            # Check if table is empty and reset sequence
+            cursor.execute("SELECT COUNT(*) FROM students")
+            count = cursor.fetchone()[0]
+            if count == 0:
+                print("[DB] Table 'students' is empty. Resetting ID sequence.")
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
+            
             conn.commit()
             print(f"[DB] Student '{name}' deleted from database. Rows affected: {changes}")
             return changes > 0
@@ -126,7 +134,7 @@ class DBManager:
 
             time_diff = (now - last_seen).total_seconds()
             
-            if time_diff <= 60:
+            if time_diff <= 30:
                 # Update existing session
                 new_duration = (now - session_start).total_seconds()
                 cursor.execute('''
@@ -153,6 +161,23 @@ class DBManager:
         conn.commit()
         conn.close()
         return status
+
+    def get_sessions_summary(self):
+        """Returns a summary of sessions: Name, Count of Unique Students, Earliest Time."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Aggregate by session_name
+        cursor.execute('''
+            SELECT session_name, COUNT(DISTINCT student_name), MIN(session_start)
+            FROM attendance_logs
+            GROUP BY session_name
+            ORDER BY MIN(session_start) DESC
+        ''')
+        
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
 
     def get_total_minutes(self, student_name):
         """Calculates total minutes attended across all sessions."""

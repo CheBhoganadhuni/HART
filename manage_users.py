@@ -65,13 +65,26 @@ def delete_user(db):
     else:
         print(f"Student '{name}' not found anywhere.")
 
+def list_sessions(db):
+    print("\n--- Session Summary ---")
+    rows = db.get_sessions_summary()
+    if not rows:
+        print("No sessions recorded.")
+    else:
+        print(f"{'Session Name':<30} | {'Students':<8} | {'Start Time'}")
+        print("-" * 65)
+        for name, count, start_time in rows:
+            print(f"{name:<30} | {count:<8} | {start_time}")
+    print("-----------------------\n")
+
 def main():
     db = DBManager()
     while True:
         print("\n=== Student Management ===")
         print("1. List Students")
         print("2. Delete Student")
-        print("3. Exit")
+        print("3. View Sessions")
+        print("4. Exit")
         
         choice = input("Select option: ").strip()
         
@@ -80,6 +93,8 @@ def main():
         elif choice == '2':
             delete_user(db)
         elif choice == '3':
+            list_sessions(db)
+        elif choice == '4':
             print("Exiting.")
             break
         else:

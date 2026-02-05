@@ -36,6 +36,23 @@ def compute_similarity(embedding1, embedding2):
         return 0.0
     return np.dot(embedding1, embedding2) / (norm1 * norm2)
 
+def calc_iou(box1, box2):
+    """Calculates Intersection over Union (IoU) between two bounding boxes."""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+
+    intersection_area = max(0, x2 - x1) * max(0, y2 - y1)
+    
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    
+    union_area = box1_area + box2_area - intersection_area
+    if union_area == 0:
+        return 0
+    return intersection_area / union_area
+
 class RecognitionWorker(threading.Thread):
     def __init__(self, session_name):
         super().__init__()
@@ -139,24 +156,61 @@ def main():
 
             # Tracking
             # classes=0 -> Person
-            results = model.track(frame, persist=True, tracker="botsort.yaml", device="mps", vid_stride=3, verbose=False, classes=0)
+            results = model.track(frame, persist=True, tracker="botsort.yaml", device="mps", vid_stride=3, verbose=False, classes=0, iou=0.5, conf=0.5)
             
-            # Since vid_stride=3, sometimes results might be None or empty?? 
-            # Actually ultralytics returns results for the frame passed. vid_stride is usually usually for video files in stream mode?
-            # Wait, independent `model.track(frame)` call doesn't use `vid_stride` in the same way as `model.predict(source='video.mp4')`.
-            # `vid_stride` parameter in `track()` might be ignored if passing single frames?
-            # Actually, for frame-by-frame loop, we control the stride by skipping frames if we want.
-            # But the user asked for `vid_stride=3` in `model.track(...)`. I'll verify if that works for frame input.
-            # Assuming standard usage per user request.
-
             current_tracks = []
             
             if results and results[0].boxes and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
                 ids = results[0].boxes.id.cpu().numpy().astype(int)
+                confs = results[0].boxes.conf.cpu().numpy()
                 
-                for box, track_id in zip(boxes, ids):
-                    x1, y1, x2, y2 = map(int, box)
+                # Combine into a list of dicts for easier filtering
+                detections = []
+                for box, track_id, conf in zip(boxes, ids, confs):
+                    detections.append({
+                        'box': box,
+                        'id': track_id,
+                        'conf': conf,
+                        'locked': track_id in tracked_identities
+                    })
+                
+                # Overlap Suppression Logic
+                keep_indices = set(range(len(detections)))
+                for i in range(len(detections)):
+                    if i not in keep_indices: continue
+                    for j in range(i + 1, len(detections)):
+                        if j not in keep_indices: continue
+                        
+                        det1 = detections[i]
+                        det2 = detections[j]
+                        
+                        iou = calc_iou(det1['box'], det2['box'])
+                        if iou > 0.7:
+                            # Suppression required
+                            drop_idx = -1
+                            
+                            # Priority 1: Keep Locked ID
+                            if det1['locked'] and not det2['locked']:
+                                drop_idx = j
+                            elif not det1['locked'] and det2['locked']:
+                                drop_idx = i
+                            # Priority 2: Higher Confidence
+                            else:
+                                if det1['conf'] >= det2['conf']:
+                                    drop_idx = j
+                                else:
+                                    drop_idx = i
+                            
+                            if drop_idx != -1:
+                                keep_indices.discard(drop_idx)
+                                
+                # Display remaining tracks
+                for idx in keep_indices:
+                    det = detections[idx]
+                    x1, y1, x2, y2 = map(int, det['box'])
+                    track_id = det['id']
+                    
                     current_tracks.append(track_id)
                     
                     # Visualization Logic
