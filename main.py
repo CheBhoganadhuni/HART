@@ -30,6 +30,7 @@ session_cache = {} # {student_name: embedding} - Priority cache for re-identific
 recognition_history = {} # {track_id: [name1, name2, ...]} - Consensus buffer
 reid_metadata = {} # {track_id: {"source": "cache/db", "time": timestamp}} - For Blue Tag logic
 last_verified_time = {} # {track_id: timestamp} - For Green User Throttling (120s)
+last_shadow_time = {} # {track_id: timestamp} - For Shadow Updates (30s)
 
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
@@ -120,16 +121,20 @@ class RecognitionWorker(threading.Thread):
                             match_source = "db"
                 
                 if max_score > SIMILARITY_THRESHOLD:
-                    # Consensus Logic: Require 2 consistent matches
+                    # Consensus Logic: Adaptive (1 for Cache, 2 for DB)
                     if track_id not in recognition_history: recognition_history[track_id] = []
                     recognition_history[track_id].append(best_match)
                     
                     # Keep only last 5 matches
                     if len(recognition_history[track_id]) > 5: recognition_history[track_id].pop(0)
 
-                    # Check for consensus (2 occurrences of same name)
+                    # Check for consensus
                     recent_matches = recognition_history[track_id]
-                    if recent_matches.count(best_match) >= 2:
+                    match_count = recent_matches.count(best_match)
+                    
+                    required_consensus = 1 if match_source == 'cache' else 2
+                    
+                    if match_count >= required_consensus:
                         tracked_identities[track_id] = best_match
                         
                         # Store Re-ID metadata for Blue Tag
@@ -161,7 +166,8 @@ class RecognitionWorker(threading.Thread):
                                     is_redundant = True
                             
                             if not is_redundant:
-                                if len(current_embs) < 3:
+                                # Cache Expansion: Max Size increased to 5
+                                if len(current_embs) < 5:
                                     current_embs.append(face.embedding)
                                     print(f"[Worker] Added diverse embedding for {best_match} (Count: {len(current_embs)})")
                                 else:
@@ -211,15 +217,23 @@ def main():
             loop_start = time.time()
             frame_idx, frame = stream.read()
             
-            # Dynamic Detection: Lower conf to 0.3 for better recall
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.3)
+            # Dynamic Detection: Lower conf to 0.15 for better recall (Regional Tuning)
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15)
             
             current_ids = []
             if results and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
                 ids = results[0].boxes.id.cpu().numpy().astype(int)
+                confs = results[0].boxes.conf.cpu().numpy()
                 
-                for box, tid in zip(boxes, ids):
+                for box, tid, conf in zip(boxes, ids, confs):
+                    # Regional Confidence Tuning
+                    # Top 35% (Back Row): Accept all > 0.15 (Global)
+                    # Bottom 65% (Front Row): Require > 0.30 to filter noise
+                    y_center = (box[1] + box[3]) / 2
+                    if y_center > frame.shape[0] * 0.35 and conf < 0.30:
+                        continue
+                        
                     current_ids.append(tid)
                     name = tracked_identities.get(tid)
                     
@@ -251,30 +265,40 @@ def main():
                     should_reverify = False
                     is_confirming = False
                     if name:
-                        # Re-verify every 120s
+                        # Re-verify every 120s (Fallback / Heartbeat)
                         time_since_verify = time.time() - last_verified_time.get(tid, 0)
                         if time_since_verify > 120.0:
                              should_reverify = True
                              is_confirming = True
+                    
+                    # Shadow Update Logic (Adaptive Memory Scaling - 30s)
+                    should_shadow = False
+                    if name and not should_reverify:
+                        if time.time() - last_shadow_time.get(tid, 0) > 30.0:
+                             should_shadow = True
 
-                    # Recognition Trigger: Normal OR Pulsing Visitor OR Green Re-Verification
-                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing or should_reverify
+                    # Recognition Trigger: Normal OR Pulsing Visitor OR Green Re-Verification OR Shadow Update
+                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing or should_reverify or should_shadow
                     
                     if should_recognize and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
                         crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
+                        # Only resize/queue if crop valid AND queue not full (prevent UI freeze)
                         if crop.size > 0:
                             if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
-                            recognition_queue.put((tid, crop))
-                            last_recognition_attempt[tid] = time.time()
+                            
+                            if not recognition_queue.full():
+                                recognition_queue.put((tid, crop))
+                                last_recognition_attempt[tid] = time.time()
+                                if should_shadow: last_shadow_time[tid] = time.time()
 
                     # UI Drawing
                     color = (0, 255, 0) # Green by default for identified
                     label = name if name else f"ID:{tid} Identifying..."
                     
-                    # Blue Tag Logic: Session Re-ID
+                    # Blue Tag Logic: Session Re-ID (Duration increased to 6s)
                     if name and tid in reid_metadata:
                         meta = reid_metadata[tid]
-                        if meta['source'] == 'cache' and (time.time() - meta['time'] < 2.0):
+                        if meta['source'] == 'cache' and (time.time() - meta['time'] < 6.0):
                              color = (255, 0, 0) # Blue (BGR)
                              label = f"{name} (Re-ID)"
                     
