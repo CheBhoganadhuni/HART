@@ -29,6 +29,7 @@ last_seen_time = {} # {student_name: timestamp} - For final flush
 session_cache = {} # {student_name: embedding} - Priority cache for re-identification
 recognition_history = {} # {track_id: [name1, name2, ...]} - Consensus buffer
 reid_metadata = {} # {track_id: {"source": "cache/db", "time": timestamp}} - For Blue Tag logic
+last_verified_time = {} # {track_id: timestamp} - For Green User Throttling (120s)
 
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
@@ -96,15 +97,19 @@ class RecognitionWorker(threading.Thread):
                 best_match, max_score = None, -1.0
                 match_source = "db" # 'cache' or 'db'
                 
-                # 1. Priority Recognition: Check Session Cache first
+                # 1. Priority Recognition: Check Session Cache (Multi-Vector)
                 # Strict Session Cache: Higher threshold (0.50)
-                for name, cached_emb in session_cache.items():
-                    score = np.dot(face.embedding, cached_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(cached_emb))
-                    if score > 0.50: # Increased from 0.40
-                         max_score, best_match = score, name
-                         match_source = "cache"
-                         print(f"[Worker] Priority Re-ID: {name} ({score:.2f})")
-                         break
+                for name, cached_embs in session_cache.items():
+                    # Handle legacy cache format (just in case) or new list format
+                    if not isinstance(cached_embs, list): cached_embs = [cached_embs]
+                    
+                    # Check all embeddings in the diversity list
+                    for cached_emb in cached_embs:
+                        score = np.dot(face.embedding, cached_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(cached_emb))
+                        if score > 0.50: # Increased from 0.40
+                             if score > max_score:
+                                 max_score, best_match = score, name
+                                 match_source = "cache"
                 
                 # 2. Standard Search: If no cache match, check full DB
                 if not best_match:
@@ -115,16 +120,16 @@ class RecognitionWorker(threading.Thread):
                             match_source = "db"
                 
                 if max_score > SIMILARITY_THRESHOLD:
-                    # Consensus Logic: Require 3 consistent matches
+                    # Consensus Logic: Require 2 consistent matches
                     if track_id not in recognition_history: recognition_history[track_id] = []
                     recognition_history[track_id].append(best_match)
                     
                     # Keep only last 5 matches
                     if len(recognition_history[track_id]) > 5: recognition_history[track_id].pop(0)
 
-                    # Check for consensus (3 occurrences of same name)
+                    # Check for consensus (2 occurrences of same name)
                     recent_matches = recognition_history[track_id]
-                    if recent_matches.count(best_match) >= 3:
+                    if recent_matches.count(best_match) >= 2:
                         tracked_identities[track_id] = best_match
                         
                         # Store Re-ID metadata for Blue Tag
@@ -134,10 +139,42 @@ class RecognitionWorker(threading.Thread):
                                 "time": time.time()
                             }
 
-                        # Strict Session Cache Update: Only if score > 0.60
-                        if max_score > 0.60:
-                            session_cache[best_match] = face.embedding 
-                        
+                        # Diversity-Aware Session Cache Update
+                        # Quality Gate: det_score > 0.6 AND Size > 60x60
+                        box = face.bbox
+                        h, w = box[3]-box[1], box[2]-box[0]
+                        if max_score > 0.65 and face.det_score > 0.6 and h > 60 and w > 60:
+                            current_embs = session_cache.get(best_match, [])
+                            if not isinstance(current_embs, list): current_embs = [current_embs]
+                            
+                            # Redundancy Check: Is this new face > 0.90 similar to any we already have?
+                            is_redundant = False
+                            most_similar_idx = -1
+                            highest_sim = -1.0
+                            
+                            for idx, existing_emb in enumerate(current_embs):
+                                sim = np.dot(face.embedding, existing_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(existing_emb))
+                                if sim > highest_sim:
+                                    highest_sim = sim
+                                    most_similar_idx = idx
+                                if sim > 0.90:
+                                    is_redundant = True
+                            
+                            if not is_redundant:
+                                if len(current_embs) < 3:
+                                    current_embs.append(face.embedding)
+                                    print(f"[Worker] Added diverse embedding for {best_match} (Count: {len(current_embs)})")
+                                else:
+                                    # Replace the one most similar to the new one (refining the cluster)
+                                    if most_similar_idx != -1:
+                                        current_embs[most_similar_idx] = face.embedding
+                                        print(f"[Worker] Updated diverse embedding for {best_match} (Idx: {most_similar_idx})")
+                                
+                                session_cache[best_match] = current_embs
+
+                        # Update Verification Timestamp (for Throttling)
+                        last_verified_time[track_id] = time.time()
+
                         if best_match in last_heartbeat_time:
                              reid_events[track_id] = time.time()
                         threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
@@ -210,8 +247,18 @@ def main():
                          if pulse_cycle > 10.0:
                               is_pulsing = True
 
-                    # Recognition Trigger: Normal OR Pulsing Visitor
-                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing
+                    # Green User Throttling Logic
+                    should_reverify = False
+                    is_confirming = False
+                    if name:
+                        # Re-verify every 120s
+                        time_since_verify = time.time() - last_verified_time.get(tid, 0)
+                        if time_since_verify > 120.0:
+                             should_reverify = True
+                             is_confirming = True
+
+                    # Recognition Trigger: Normal OR Pulsing Visitor OR Green Re-Verification
+                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing or should_reverify
                     
                     if should_recognize and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
                         crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
@@ -230,6 +277,10 @@ def main():
                         if meta['source'] == 'cache' and (time.time() - meta['time'] < 2.0):
                              color = (255, 0, 0) # Blue (BGR)
                              label = f"{name} (Re-ID)"
+                    
+                    # Confirming Label Logic
+                    if name and is_confirming:
+                         label = f"{name} (Confirming...)"
                     
                     if not name:
                          color = (0, 165, 255) # Orange for identifying
