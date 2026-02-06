@@ -1,4 +1,5 @@
 import cv2
+import argparse
 import os
 import threading
 import queue
@@ -169,14 +170,19 @@ class RecognitionWorker(threading.Thread):
                                 # Cache Expansion: Max Size increased to 5
                                 if len(current_embs) < 5:
                                     current_embs.append(face.embedding)
-                                    print(f"[Worker] Added diverse embedding for {best_match} (Count: {len(current_embs)})")
+                                    print(f"[Worker] [Cache] Added {best_match} (Count: {len(current_embs)}) -> New Angle")
                                 else:
                                     # Replace the one most similar to the new one (refining the cluster)
                                     if most_similar_idx != -1:
                                         current_embs[most_similar_idx] = face.embedding
-                                        print(f"[Worker] Updated diverse embedding for {best_match} (Idx: {most_similar_idx})")
+                                        print(f"[Worker] [Cache] Updating {best_match} Idx {most_similar_idx} (Sim: {highest_sim:.2f}) -> Diverse Pose Captured")
                                 
                                 session_cache[best_match] = current_embs
+                            else:
+                                 print(f"[Worker] [Cache] Skipped {best_match} - Too Similar (Sim: {highest_sim:.2f})")
+                        else:
+                             if max_score > 0.65:
+                                  print(f"[Worker] [Cache] Skipped {best_match} - Low Quality (Score: {face.det_score:.2f} Size: {h}x{w})")
 
                         # Update Verification Timestamp (for Throttling)
                         last_verified_time[track_id] = time.time()
@@ -202,15 +208,53 @@ def calc_iou(box1, box2):
     return inter / (area1 + area2 - inter + 1e-6)
 
 def main():
-    session_name = input("Session Name: ").strip() or f"Session_{int(time.time())}"
+    parser = argparse.ArgumentParser(description="MOT Attendance System")
+    parser.add_argument('--session', type=str, help='Session Name')
+    parser.add_argument('--source', type=str, default='0', help='Video source (0 for webcam or path)')
+    parser.add_argument('--export', action='store_true', help='Enable video export')
+    parser.add_argument('--cache', type=str, help='Path to selective cache pkl to load (Headstart)')
+    args = parser.parse_args()
+
+    session_name = args.session or f"Session_{int(time.time())}"
+    print(f"[System] Starting Session: {session_name}")
+
+    # Selective Cache Loading (Headstart)
+    if args.cache:
+        if os.path.exists(args.cache):
+            try:
+                with open(args.cache, 'rb') as f:
+                    loaded_cache = pickle.load(f)
+                    session_cache.update(loaded_cache)
+                print(f"[System] Headstart enabled: Loaded cache from {args.cache}")
+            except Exception as e:
+                print(f"[System] Failed to load cache: {e}")
+        else:
+            print(f"[System] Warning: Cache file not found at {args.cache}")
+
     worker = RecognitionWorker(session_name).start()
     
-    source = input("Source (0/Path): ").strip()
+    source = args.source
     is_mp4 = source != '0'
     stream = AsyncVideoStream(source, stride=2 if is_mp4 else 3).start()
     
     model = YOLO('yolo11n.pt')
     session_start = time.time()
+    
+    # Export Setup
+    video_writer = None
+    if args.export:
+        os.makedirs("data/exports", exist_ok=True)
+        export_path = f"data/exports/{session_name}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # Wait for first frame to get size
+        while stream.queue.empty() and not stream.stopped:
+            time.sleep(0.1)
+        if not stream.queue.empty():
+             # Peek at frame size
+             _, sample_frame = stream.queue.queue[0]
+             h, w = sample_frame.shape[:2]
+             video_writer = cv2.VideoWriter(export_path, fourcc, 30.0 if is_mp4 else 30.0, (w, h))
+             print(f"[System] Export enabled: Recording to {export_path}")
     
     try:
         while not stream.stopped or not stream.queue.empty():
@@ -328,13 +372,31 @@ def main():
             prog = f" | {int((frame_idx/stream.total_frames)*100)}%" if is_mp4 else ""
             cv2.putText(frame, f"FPS: {fps:.1f} | Live: {len(current_ids)} | {elapsed}{prog}", (20, 30), 1, 1.2, (255,255,255), 2)
             
+            if video_writer:
+                video_writer.write(frame)
+
             cv2.imshow("Attendance Pro", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'): break
 
     finally:
         stream.stop()
+        if video_writer:
+            video_writer.release()
+            print("[System] Export saved.")
+            
         cv2.destroyAllWindows()
         print(f"Done. Processed in {((time.time()-session_start)/60):.2f}m")
+        
+        # Persistent Cache Export
+        try:
+            os.makedirs("data/persistent_cache", exist_ok=True)
+            cache_name = f"cache_{session_name}_{int(time.time())}.pkl"
+            cache_path = os.path.join("data/persistent_cache", cache_name)
+            with open(cache_path, 'wb') as f:
+                pickle.dump(session_cache, f)
+            print(f"[System] Session cache exported to {cache_path}")
+        except Exception as e:
+            print(f"[System] Failed to export cache: {e}")
         
         # Final Cleanup: Flush recent heartbeats
         print("Flushing final heartbeats...")
