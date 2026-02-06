@@ -23,11 +23,12 @@ last_recognition_attempt = {}
 last_heartbeat_time = {} 
 reid_events = {} 
 track_start_time = {} 
-track_start_time = {} 
 saved_unknowns = set()
 blacklisted_tracks = set() # {track_id} - Ignore for recognition after timeout
 last_seen_time = {} # {student_name: timestamp} - For final flush
 session_cache = {} # {student_name: embedding} - Priority cache for re-identification
+recognition_history = {} # {track_id: [name1, name2, ...]} - Consensus buffer
+reid_metadata = {} # {track_id: {"source": "cache/db", "time": timestamp}} - For Blue Tag logic
 
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
@@ -55,6 +56,7 @@ class AsyncVideoStream:
                 if not ret:
                     self.stopped = True
                     return
+
                 self.queue.put((frame_idx, frame))
                 frame_idx += self.stride
             else:
@@ -92,13 +94,15 @@ class RecognitionWorker(threading.Thread):
                 
                 face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
                 best_match, max_score = None, -1.0
+                match_source = "db" # 'cache' or 'db'
                 
                 # 1. Priority Recognition: Check Session Cache first
-                # If a person was already identified in this session, match them faster/easier
+                # Strict Session Cache: Higher threshold (0.50)
                 for name, cached_emb in session_cache.items():
                     score = np.dot(face.embedding, cached_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(cached_emb))
-                    if score > 0.40: # Lower threshold for session recall
+                    if score > 0.50: # Increased from 0.40
                          max_score, best_match = score, name
+                         match_source = "cache"
                          print(f"[Worker] Priority Re-ID: {name} ({score:.2f})")
                          break
                 
@@ -108,14 +112,36 @@ class RecognitionWorker(threading.Thread):
                         score = np.dot(face.embedding, known_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(known_emb))
                         if score > max_score:
                             max_score, best_match = score, name
+                            match_source = "db"
                 
                 if max_score > SIMILARITY_THRESHOLD:
-                    tracked_identities[track_id] = best_match
-                    session_cache[best_match] = face.embedding # Update cache with latest look
-                    if best_match in last_heartbeat_time:
-                         reid_events[track_id] = time.time()
-                    threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
-                    last_heartbeat_time[best_match] = time.time()
+                    # Consensus Logic: Require 3 consistent matches
+                    if track_id not in recognition_history: recognition_history[track_id] = []
+                    recognition_history[track_id].append(best_match)
+                    
+                    # Keep only last 5 matches
+                    if len(recognition_history[track_id]) > 5: recognition_history[track_id].pop(0)
+
+                    # Check for consensus (3 occurrences of same name)
+                    recent_matches = recognition_history[track_id]
+                    if recent_matches.count(best_match) >= 3:
+                        tracked_identities[track_id] = best_match
+                        
+                        # Store Re-ID metadata for Blue Tag
+                        if track_id not in reid_metadata:
+                            reid_metadata[track_id] = {
+                                "source": match_source,
+                                "time": time.time()
+                            }
+
+                        # Strict Session Cache Update: Only if score > 0.60
+                        if max_score > 0.60:
+                            session_cache[best_match] = face.embedding 
+                        
+                        if best_match in last_heartbeat_time:
+                             reid_events[track_id] = time.time()
+                        threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
+                        last_heartbeat_time[best_match] = time.time()
             except Exception as e: print(f"Worker Error: {e}")
             finally: recognition_queue.task_done()
 
@@ -176,8 +202,18 @@ def main():
                         # Update last seen time for known students
                         last_seen_time[name] = time.time()
                     
-                    # Recognition Trigger
-                    if not name and tid not in blacklisted_tracks and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
+                    # Visitor Pulse Logic
+                    is_pulsing = False
+                    if tid in blacklisted_tracks and not name:
+                         # Pulse every 10s for 2s
+                         pulse_cycle = (time.time() - track_start_time[tid]) % 12.0 # 10s off + 2s on
+                         if pulse_cycle > 10.0:
+                              is_pulsing = True
+
+                    # Recognition Trigger: Normal OR Pulsing Visitor
+                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing
+                    
+                    if should_recognize and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
                         crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
                         if crop.size > 0:
                             if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
@@ -185,16 +221,31 @@ def main():
                             last_recognition_attempt[tid] = time.time()
 
                     # UI Drawing
-                    color = (0, 255, 0) if name else (0, 165, 255)
+                    color = (0, 255, 0) # Green by default for identified
                     label = name if name else f"ID:{tid} Identifying..."
                     
+                    # Blue Tag Logic: Session Re-ID
+                    if name and tid in reid_metadata:
+                        meta = reid_metadata[tid]
+                        if meta['source'] == 'cache' and (time.time() - meta['time'] < 2.0):
+                             color = (255, 0, 0) # Blue (BGR)
+                             label = f"{name} (Re-ID)"
+                    
+                    if not name:
+                         color = (0, 165, 255) # Orange for identifying
+
                     # Graceful Unknowns: Visitor Mode
                     if tid in blacklisted_tracks and not name:
-                        color = (192, 192, 192) # Gray
-                        label = f"Visitor ID:{tid}"
+                        if is_pulsing:
+                             color = (0, 165, 255) # Orange (Pulse Active)
+                             label = f"Visitor ID:{tid} (Checking...)"
+                        else:
+                             color = (192, 192, 192) # Gray
+                             label = f"Visitor ID:{tid}"
                     
                     cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
                     cv2.putText(frame, label, (int(box[0]), int(box[1])-10), 1, 1, color, 2)
+
 
             # Dashboard
             fps = 1.0 / (time.time() - loop_start)
