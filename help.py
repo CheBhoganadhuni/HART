@@ -68,7 +68,7 @@ C. RUN ATTENDANCE SESSION
   [Orange] Identifying...: AI is processing the face.
   [Gray]  Visitor ID:123 : Unknown face (Logged to DB).
 - Unknowns: Saved to `data/unknown_faces/` and `unknown_detections` table.
-- Session Closure: Safely closes DB connection on exit (Press 'q').
+- Session Closure: Safely closes DB connection on exit (Press 'q') ('p' (Pause)).
 
 5. DATABASE STRUCTURE (data/attendance.db)
 ------------------------------------------

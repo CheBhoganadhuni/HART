@@ -292,7 +292,9 @@ def main():
     # Global Pulse Timers
     last_global_pulse = time.time()
     
-    # Export Setup ... (existing) ...
+    is_paused = False
+    
+    # Export Setup
 
     # Export Setup
     video_writer = None
@@ -327,130 +329,131 @@ def main():
                 seen_in_pulse_window.clear()
                 last_global_pulse = time.time()
             
-            # Dynamic Detection: Agnostic NMS True, IOU=0.5 to prevent ghosting
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15, iou=0.5)
-            
-            current_ids = []
-            if results and results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                ids = results[0].boxes.id.cpu().numpy().astype(int)
-                confs = results[0].boxes.conf.cpu().numpy()
+            if not is_paused:
+                # Dynamic Detection: Agnostic NMS True, IOU=0.5 to prevent ghosting
+                results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15, iou=0.5)
                 
-                for box, tid, conf in zip(boxes, ids, confs):
-                    # Regional Confidence Tuning
-                    # Top 35% (Back Row): Accept all > 0.15 (Global)
-                    # Bottom 65% (Front Row): Require > 0.30 to filter noise
-                    y_center = (box[1] + box[3]) / 2
-                    if y_center > frame.shape[0] * 0.35 and conf < 0.30:
-                        continue
-                        
-                    current_ids.append(tid)
-
-                    # Accumulate for Heartbeat Pulse
-                    if tid in tracked_identities and tracked_identities[tid]:
-                         seen_in_pulse_window.add(tracked_identities[tid])
-
-                    name = tracked_identities.get(tid)
+                current_ids = []
+                if results and results[0].boxes.id is not None:
+                    boxes = results[0].boxes.xyxy.cpu().numpy()
+                    ids = results[0].boxes.id.cpu().numpy().astype(int)
+                    confs = results[0].boxes.conf.cpu().numpy()
                     
-                    if not name:
-                        if tid not in track_start_time: track_start_time[tid] = time.time()
-                        elif time.time() - track_start_time[tid] > 5.0:
-                             # Unknown Throttling: Blacklist after 5s
-                             blacklisted_tracks.add(tid)
-                        
-                        if time.time() - track_start_time.get(tid, time.time()) > UNKNOWN_SAVE_THRESHOLD:
-                            if tid not in saved_unknowns:
-                                save_dir = f"data/unknown_faces/{session_name}"
-                                os.makedirs(save_dir, exist_ok=True)
-                                
-                                face = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
-                                img_path = f"{save_dir}/unknown_{tid}_{int(time.time())}.jpg"
-                                cv2.imwrite(img_path, face)
-                                
-                                # Log to DB
-                                threading.Thread(target=db.log_unknown_detection, args=(session_id, session_name, tid, img_path), daemon=True).start()
-                                
-                                saved_unknowns.add(tid)
-                    else:
-                        # Update last seen time for known students
-                        last_seen_time[name] = time.time()
-                    
-                    # [Removed Duplicate Drawing Block]
-                    
-                    # Visitor Pulse Logic
-                    is_pulsing = False
-                    if tid in blacklisted_tracks and not name:
-                         # Pulse every 10s for 2s
-                         pulse_cycle = (time.time() - track_start_time[tid]) % 12.0 # 10s off + 2s on
-                         if pulse_cycle > 10.0:
-                              is_pulsing = True
-
-                    # Green User Throttling Logic
-                    should_reverify = False
-                    is_confirming = False
-                    if name:
-                        # Re-verify every 120s (Fallback / Heartbeat)
-                        time_since_verify = time.time() - last_verified_time.get(tid, 0)
-                        if time_since_verify > 120.0:
-                             should_reverify = True
-                             is_confirming = True
-                    
-                    # Shadow Update Logic (Adaptive Memory Scaling - 30s)
-                    should_shadow = False
-                    if name and not should_reverify:
-                        if time.time() - last_shadow_time.get(tid, 0) > 30.0:
-                             should_shadow = True
-
-                    # Recognition Trigger: Normal OR Pulsing Visitor OR Green Re-Verification OR Shadow Update
-                    should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing or should_reverify or should_shadow
-                    
-                    if should_recognize and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
-                        crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
-                        # Only resize/queue if crop valid AND queue not full (prevent UI freeze)
-                        if crop.size > 0:
-                            if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
+                    for box, tid, conf in zip(boxes, ids, confs):
+                        # Regional Confidence Tuning
+                        # Top 35% (Back Row): Accept all > 0.15 (Global)
+                        # Bottom 65% (Front Row): Require > 0.30 to filter noise
+                        y_center = (box[1] + box[3]) / 2
+                        if y_center > frame.shape[0] * 0.35 and conf < 0.30:
+                            continue
                             
-                            if not recognition_queue.full():
-                                recognition_queue.put((tid, crop))
-                                last_recognition_attempt[tid] = time.time()
-                                if should_shadow: last_shadow_time[tid] = time.time()
+                        current_ids.append(tid)
 
-                    # UI Drawing
-                    # UI Drawing (Consolidated)
-                    color = (0, 165, 255) # Orange (Identifying)
-                    label = f"ID:{tid} Identifying..."
+                        # Accumulate for Heartbeat Pulse
+                        if tid in tracked_identities and tracked_identities[tid]:
+                             seen_in_pulse_window.add(tracked_identities[tid])
 
-                    if name:
-                        display_name = id_to_name.get(tracked_identities[tid], name)
-                        color = (0, 255, 0) # Green (Verified)
-                        label = display_name
+                        name = tracked_identities.get(tid)
                         
-                        # Blue Tag: Re-ID (< 6s)
-                        if tid in reid_metadata and (time.time() - reid_metadata[tid]['time'] < 6.0):
-                             color = (255, 0, 0) # Blue
-                             label = f"{display_name} (Re-ID)"
+                        if not name:
+                            if tid not in track_start_time: track_start_time[tid] = time.time()
+                            elif time.time() - track_start_time[tid] > 5.0:
+                                 # Unknown Throttling: Blacklist after 5s
+                                 blacklisted_tracks.add(tid)
+                            
+                            if time.time() - track_start_time.get(tid, time.time()) > UNKNOWN_SAVE_THRESHOLD:
+                                if tid not in saved_unknowns:
+                                    save_dir = f"data/unknown_faces/{session_name}"
+                                    os.makedirs(save_dir, exist_ok=True)
+                                    
+                                    face = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
+                                    img_path = f"{save_dir}/unknown_{tid}_{int(time.time())}.jpg"
+                                    cv2.imwrite(img_path, face)
+                                    
+                                    # Log to DB
+                                    threading.Thread(target=db.log_unknown_detection, args=(session_id, session_name, tid, img_path), daemon=True).start()
+                                    
+                                    saved_unknowns.add(tid)
+                        else:
+                            # Update last seen time for known students
+                            last_seen_time[name] = time.time()
                         
-                        # Confirming
-                        if is_confirming:
-                             label = f"{display_name} (Confirming...)"
-                    
-                    elif tid in blacklisted_tracks:
-                        # Visitor Logic
-                        color = (192, 192, 192) # Gray
-                        label = f"Visitor ID:{tid}"
-                        if is_pulsing:
-                             color = (0, 165, 255) # Orange
-                             label = f"Visitor ID:{tid} (Checking...)"
-                    
-                    cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
-                    
-                    # Label Logic: Ensure no overlap and stay on screen
-                    text_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
-                    lbl_x = int(box[0])
-                    lbl_y = int(box[1]) - 10
-                    if lbl_y < 20: lbl_y = int(box[1]) + 20 # Push down if too high
-                    
-                    cv2.putText(frame, label, (lbl_x, lbl_y), 0, 0.6, color, 2)
+                        # [Removed Duplicate Drawing Block]
+                        
+                        # Visitor Pulse Logic
+                        is_pulsing = False
+                        if tid in blacklisted_tracks and not name:
+                             # Pulse every 10s for 2s
+                             pulse_cycle = (time.time() - track_start_time[tid]) % 12.0 # 10s off + 2s on
+                             if pulse_cycle > 10.0:
+                                  is_pulsing = True
+
+                        # Green User Throttling Logic
+                        should_reverify = False
+                        is_confirming = False
+                        if name:
+                            # Re-verify every 120s (Fallback / Heartbeat)
+                            time_since_verify = time.time() - last_verified_time.get(tid, 0)
+                            if time_since_verify > 120.0:
+                                 should_reverify = True
+                                 is_confirming = True
+                        
+                        # Shadow Update Logic (Adaptive Memory Scaling - 30s)
+                        should_shadow = False
+                        if name and not should_reverify:
+                            if time.time() - last_shadow_time.get(tid, 0) > 30.0:
+                                 should_shadow = True
+
+                        # Recognition Trigger: Normal OR Pulsing Visitor OR Green Re-Verification OR Shadow Update
+                        should_recognize = (not name and tid not in blacklisted_tracks) or is_pulsing or should_reverify or should_shadow
+                        
+                        if should_recognize and time.time() - last_recognition_attempt.get(tid, 0) > RETRY_COOLDOWN:
+                            crop = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])].copy()
+                            # Only resize/queue if crop valid AND queue not full (prevent UI freeze)
+                            if crop.size > 0:
+                                if crop.shape[0] < 120: crop = cv2.resize(crop, (0,0), fx=2, fy=2)
+                                
+                                if not recognition_queue.full():
+                                    recognition_queue.put((tid, crop))
+                                    last_recognition_attempt[tid] = time.time()
+                                    if should_shadow: last_shadow_time[tid] = time.time()
+
+                        # UI Drawing
+                        # UI Drawing (Consolidated)
+                        color = (0, 165, 255) # Orange (Identifying)
+                        label = f"ID:{tid} Identifying..."
+
+                        if name:
+                            display_name = id_to_name.get(tracked_identities[tid], name)
+                            color = (0, 255, 0) # Green (Verified)
+                            label = display_name
+                            
+                            # Blue Tag: Re-ID (< 6s)
+                            if tid in reid_metadata and (time.time() - reid_metadata[tid]['time'] < 6.0):
+                                 color = (255, 0, 0) # Blue
+                                 label = f"{display_name} (Re-ID)"
+                            
+                            # Confirming
+                            if is_confirming:
+                                 label = f"{display_name} (Confirming...)"
+                        
+                        elif tid in blacklisted_tracks:
+                            # Visitor Logic
+                            color = (192, 192, 192) # Gray
+                            label = f"Visitor ID:{tid}"
+                            if is_pulsing:
+                                 color = (0, 165, 255) # Orange
+                                 label = f"Visitor ID:{tid} (Checking...)"
+                        
+                        cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
+                        
+                        # Label Logic: Ensure no overlap and stay on screen
+                        text_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
+                        lbl_x = int(box[0])
+                        lbl_y = int(box[1]) - 10
+                        if lbl_y < 20: lbl_y = int(box[1]) + 20 # Push down if too high
+                        
+                        cv2.putText(frame, label, (lbl_x, lbl_y), 0, 0.6, color, 2)
 
 
             # Dashboard (Top-Left, Always on top)
@@ -459,13 +462,21 @@ def main():
             prog = f" | {int((frame_idx/stream.total_frames)*100)}%" if is_mp4 else ""
             status_text = f"FPS: {fps:.1f} | Live: {len(current_ids)} | Time: {elapsed}{prog}"
             
+            if is_paused:
+                status_text += " | PAUSED"
+                cv2.putText(frame, "SYSTEM PAUSED (Press 'p' to Resume)", (frame.shape[1]//2 - 200, frame.shape[0]//2), 0, 1.0, (0, 0, 255), 3)
+
             cv2.putText(frame, status_text, (20, 30), 0, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, "'p': Pause | 'q': Quit", (20, frame.shape[0] - 20), 0, 0.7, (200, 200, 200), 2)
             
             if video_writer:
                 video_writer.write(frame)
 
             cv2.imshow("Attendance Pro", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'): break
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'): break
+            elif key == ord('p'): is_paused = not is_paused
 
     finally:
         stream.stop()

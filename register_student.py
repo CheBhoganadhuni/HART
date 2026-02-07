@@ -100,80 +100,101 @@ def register_student():
     prev_lmk = None
     
     is_paused = False
+    pause_reason = None
     
     print(f"Starting Scan for {name} ({student_id}) in {section}...")
     print("Controls: 'p' to Pause/Resume | 'r' to Restart | 'q' to Quit")
     
-    while len(captured_embeddings) < TOTAL_FRAMES:
-        ret, frame = cap.read()
-        if not ret: break
-        
-        h, w, _ = frame.shape
-        frame = cv2.flip(frame, 1)
-        display = frame.copy()
-        
-        faces = app.get(frame)
-        
-        # User Feedback & Controls
-        status_color = (0, 255, 0)
-        instruction = "ROTATE HEAD SLOWLY"
-        
-        if is_paused:
-            instruction = "PAUSED (Press 'p' to Resume)"
-            status_color = (0, 165, 255) # Orange
-        
-        elif len(faces) > 1:
-            instruction = "MULTIPLE FACES DETECTED!"
-            status_color = (0, 0, 255) # Red
-            cv2.putText(display, "Ensure only YOU are in frame", (50, h - 90), 1, 1.0, (0, 0, 255), 2)
+    try:
+        while len(captured_embeddings) < TOTAL_FRAMES:
+            ret, frame = cap.read()
+            if not ret: break
             
-        elif faces:
-            face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
-            curr_lmk = face.landmark_2d_106
-            draw_clean_dots(display, curr_lmk)
+            h, w, _ = frame.shape
+            frame = cv2.flip(frame, 1)
+            display = frame.copy()
             
-            should_capture = False
-            if prev_lmk is None:
-                should_capture = True
-            else:
-                dist = np.mean(np.linalg.norm(curr_lmk - prev_lmk, axis=1))
-                if dist > MOVEMENT_THRESHOLD:
+            faces = app.get(frame)
+            
+            # User Feedback & Controls
+            status_color = (0, 255, 0)
+            instruction = "ROTATE HEAD SLOWLY"
+            
+            if is_paused:
+                if pause_reason:
+                    instruction = f"{pause_reason} (Press 'r' to Resume)"
+                    status_color = (0, 0, 255) # Red for Error Pause
+                else:
+                    instruction = "PAUSED (Press 'p' to Resume)"
+                    status_color = (0, 165, 255) # Orange for Manual Pause
+            
+            elif len(faces) > 1:
+                # Force Pause and Reset
+                captured_embeddings = []
+                prev_lmk = None
+                is_paused = True
+                pause_reason = "MULTIPLE FACES! RESETTING..."
+                instruction = pause_reason
+                status_color = (0, 0, 255)
+                
+            elif faces:
+                # Normal Capture Logic
+                pause_reason = None # Clear reason if we are back to normal (though we are paused, so this branch won't hit until resumed)
+                
+                face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
+                curr_lmk = face.landmark_2d_106
+                draw_clean_dots(display, curr_lmk)
+                
+                should_capture = False
+                if prev_lmk is None:
                     should_capture = True
-            
-            if should_capture:
-                captured_embeddings.append(face.embedding)
-                prev_lmk = curr_lmk.copy()
+                else:
+                    dist = np.mean(np.linalg.norm(curr_lmk - prev_lmk, axis=1))
+                    if dist > MOVEMENT_THRESHOLD:
+                        should_capture = True
+                
+                if should_capture:
+                    captured_embeddings.append(face.embedding)
+                    prev_lmk = curr_lmk.copy()
+                else:
+                    status_color = (0, 165, 255) # Orange
             else:
-                status_color = (0, 165, 255) # Orange
-        else:
-             instruction = "NO FACE DETECTED"
-             status_color = (0, 0, 255) # Red
+                 # No face
+                 instruction = "NO FACE DETECTED"
+                 status_color = (0, 0, 255)
 
-        # Draw UI
-        progress = int((len(captured_embeddings) / TOTAL_FRAMES) * 100)
-        cv2.rectangle(display, (50, h - 50), (w - 50, h - 30), (40, 40, 40), -1)
-        cv2.rectangle(display, (50, h - 50), (50 + int((w - 100) * (progress/100)), h - 30), status_color, -1)
-        cv2.putText(display, f"Scan Progress: {progress}%", (50, h - 65), 1, 1.2, (255, 255, 255), 1)
-        cv2.putText(display, f"ID: {student_id}", (w//2 - 60, 50), 1, 1.0, (200, 200, 200), 2)
-        cv2.putText(display, instruction, (w//2 - 140, 90), 1, 1.5, status_color, 2)
-        cv2.putText(display, "'p': Pause | 'r': Restart | 'q': Quit", (50, h - 10), 1, 1.0, (200, 200, 200), 1)
+            # Draw UI
+            progress = int((len(captured_embeddings) / TOTAL_FRAMES) * 100)
+            cv2.rectangle(display, (50, h - 50), (w - 50, h - 30), (40, 40, 40), -1)
+            cv2.rectangle(display, (50, h - 50), (50 + int((w - 100) * (progress/100)), h - 30), status_color, -1)
+            cv2.putText(display, f"Scan Progress: {progress}%", (50, h - 65), 1, 1.2, (255, 255, 255), 1)
+            cv2.putText(display, f"ID: {student_id}", (w//2 - 60, 50), 1, 1.0, (200, 200, 200), 2)
+            cv2.putText(display, instruction, (w//2 - 140, 90), 1, 1.5, status_color, 2)
+            cv2.putText(display, "'p': Pause | 'r': Restart | 'q': Quit", (50, h - 10), 1, 1.0, (200, 200, 200), 1)
 
-        cv2.imshow("Biometric Registration", display)
-        
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'): 
-            print("\n[System] Registration cancelled by user.")
-            cap.release()
-            cv2.destroyAllWindows()
-            return
-        elif key == ord('r'):
-            captured_embeddings = []
-            prev_lmk = None
-            is_paused = False
-            print("[System] Restarting scan...")
-        elif key == ord('p'):
-            is_paused = not is_paused
-            print(f"[System] {'Paused' if is_paused else 'Resumed'} scan.")
+            cv2.imshow("Biometric Registration", display)
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'): 
+                print("\n[System] Registration cancelled by user.")
+                cap.release()
+                cv2.destroyAllWindows()
+                return
+            elif key == ord('r'):
+                captured_embeddings = []
+                prev_lmk = None
+                is_paused = False
+                pause_reason = None
+                print("[System] Restarting scan...")
+            elif key == ord('p'):
+                is_paused = not is_paused
+                print(f"[System] {'Paused' if is_paused else 'Resumed'} scan.")
+                
+    except KeyboardInterrupt:
+        print("\n[System] Registration cancelled.")
+        cap.release()
+        cv2.destroyAllWindows()
+        return
  
     if len(captured_embeddings) >= TOTAL_FRAMES:
         mean_emb = np.mean(captured_embeddings, axis=0)
