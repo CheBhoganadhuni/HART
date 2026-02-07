@@ -35,20 +35,50 @@ def register_student():
     db = DBManager()
     
     # 1. Ask for Section First
-    section = input("Enter Section Name (e.g., CSE_A): ").strip()
-    if not section: 
-        print("Section name is required.")
-        return
+    try:
+        print("\n=== Biometric Registration ===")
+        print("Controls in registration window: 'p' to Pause/Resume | 'r' to Restart | 'q' to Quit")
+        print("Please ensure:")
+        print("1. You are in a well-lit environment.")
+        print("2. Your face is clearly visible (no masks/sunglasses).")
+        print("3. No one else is in the camera view.")
+        print("--------------------------------")
+        
+        section = input("Enter Section Name (e.g., CSE_A): ").strip()
+        if not section: 
+            print("Section name is required.")
+            return
 
-    # 2. Ask for Student ID (Unique Identifier)
-    student_id = input("Enter Student ID (e.g., CSE001): ").strip()
-    if not student_id: 
-        print("Student ID is required.")
-        return
+        # 2. Ask for Student ID (Unique Identifier)
+        student_id = input("Enter Student ID (e.g., CSE001): ").strip()
+        if not student_id: 
+            print("Student ID is required.")
+            return
 
-    # 3. Ask for Student Name (Display Only)
-    name = input("Enter Student Name: ").strip()
-    if not name: return
+        # Pre-Check: Prevent Duplicate ID
+        # Check in DB
+        if db.get_student_by_id(student_id): # We need to add this method to DB or just query
+             print(f"\n[ERROR] Student ID '{student_id}' already exists in database. Aborting.")
+             return
+             
+        # Check in Pickle (Double safety)
+        section_file = f"data/embeddings/{section}.pkl"
+        existing_data = {}
+        if os.path.exists(section_file):
+            try:
+                with open(section_file, 'rb') as f: existing_data = pickle.load(f)
+                if student_id in existing_data:
+                     print(f"\n[ERROR] Student ID '{student_id}' already exists in section file. Aborting.")
+                     return
+            except: pass
+
+        # 3. Ask for Student Name (Display Only)
+        name = input("Enter Student Name: ").strip()
+        if not name: return
+        
+    except KeyboardInterrupt:
+        print("\n[System] Registration cancelled.")
+        return
     
     # 4. Load Section-Specific Embeddings
     # Structure: {student_id: embedding} 
@@ -69,7 +99,10 @@ def register_student():
     captured_embeddings = []
     prev_lmk = None
     
+    is_paused = False
+    
     print(f"Starting Scan for {name} ({student_id}) in {section}...")
+    print("Controls: 'p' to Pause/Resume | 'r' to Restart | 'q' to Quit")
     
     while len(captured_embeddings) < TOTAL_FRAMES:
         ret, frame = cap.read()
@@ -81,7 +114,20 @@ def register_student():
         
         faces = app.get(frame)
         
-        if faces:
+        # User Feedback & Controls
+        status_color = (0, 255, 0)
+        instruction = "ROTATE HEAD SLOWLY"
+        
+        if is_paused:
+            instruction = "PAUSED (Press 'p' to Resume)"
+            status_color = (0, 165, 255) # Orange
+        
+        elif len(faces) > 1:
+            instruction = "MULTIPLE FACES DETECTED!"
+            status_color = (0, 0, 255) # Red
+            cv2.putText(display, "Ensure only YOU are in frame", (50, h - 90), 1, 1.0, (0, 0, 255), 2)
+            
+        elif faces:
             face = sorted(faces, key=lambda x: (x.bbox[2]-x.bbox[0])*(x.bbox[3]-x.bbox[1]), reverse=True)[0]
             curr_lmk = face.landmark_2d_106
             draw_clean_dots(display, curr_lmk)
@@ -97,19 +143,37 @@ def register_student():
             if should_capture:
                 captured_embeddings.append(face.embedding)
                 prev_lmk = curr_lmk.copy()
-                color = (0, 255, 0)
             else:
-                color = (0, 165, 255)
- 
-            progress = int((len(captured_embeddings) / TOTAL_FRAMES) * 100)
-            cv2.rectangle(display, (50, h - 50), (w - 50, h - 30), (40, 40, 40), -1)
-            cv2.rectangle(display, (50, h - 50), (50 + int((w - 100) * (progress/100)), h - 30), color, -1)
-            cv2.putText(display, f"Scan Progress: {progress}%", (50, h - 65), 1, 1.2, (255, 255, 255), 1)
-            cv2.putText(display, f"ID: {student_id}", (w//2 - 60, 50), 1, 1.0, (200, 200, 200), 2)
-            cv2.putText(display, "ROTATE HEAD SLOWLY", (w//2 - 140, 90), 1, 1.5, color, 2)
- 
+                status_color = (0, 165, 255) # Orange
+        else:
+             instruction = "NO FACE DETECTED"
+             status_color = (0, 0, 255) # Red
+
+        # Draw UI
+        progress = int((len(captured_embeddings) / TOTAL_FRAMES) * 100)
+        cv2.rectangle(display, (50, h - 50), (w - 50, h - 30), (40, 40, 40), -1)
+        cv2.rectangle(display, (50, h - 50), (50 + int((w - 100) * (progress/100)), h - 30), status_color, -1)
+        cv2.putText(display, f"Scan Progress: {progress}%", (50, h - 65), 1, 1.2, (255, 255, 255), 1)
+        cv2.putText(display, f"ID: {student_id}", (w//2 - 60, 50), 1, 1.0, (200, 200, 200), 2)
+        cv2.putText(display, instruction, (w//2 - 140, 90), 1, 1.5, status_color, 2)
+        cv2.putText(display, "'p': Pause | 'r': Restart | 'q': Quit", (50, h - 10), 1, 1.0, (200, 200, 200), 1)
+
         cv2.imshow("Biometric Registration", display)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'): 
+            print("\n[System] Registration cancelled by user.")
+            cap.release()
+            cv2.destroyAllWindows()
+            return
+        elif key == ord('r'):
+            captured_embeddings = []
+            prev_lmk = None
+            is_paused = False
+            print("[System] Restarting scan...")
+        elif key == ord('p'):
+            is_paused = not is_paused
+            print(f"[System] {'Paused' if is_paused else 'Resumed'} scan.")
  
     if len(captured_embeddings) >= TOTAL_FRAMES:
         mean_emb = np.mean(captured_embeddings, axis=0)

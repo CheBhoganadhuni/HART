@@ -210,6 +210,17 @@ class DBManager:
         finally:
             conn.close()
 
+
+
+    def get_student_by_id(self, student_id):
+        """Checks if a student ID exists."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM students WHERE student_id = ?", (student_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row
+
     # Management Helpers
     def get_all_students_with_section(self):
         """Returns list of (name, section, student_id) for all students."""
