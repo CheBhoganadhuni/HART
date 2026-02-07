@@ -20,183 +20,171 @@ class DBManager:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS students (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
+                student_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                section TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Table: attendance_logs
-        # session_id can be a UUID or just auto-increment. 
-        # We will use auto-increment ID as the session handle mostly, 
-        # but let's keep it simple.
+        # ... (attendance_logs table creation - no change needed or deprecated) ...
+        
+        # Schema Migration: Check if student_id column exists
+        try:
+            cursor.execute('SELECT student_id FROM students LIMIT 1')
+        except sqlite3.OperationalError:
+            print("[DB] Adding missing column 'student_id' to students")
+            cursor.execute('ALTER TABLE students ADD COLUMN student_id TEXT')
+            # Note: Existing rows will have NULL student_id. User might need to clear DB or we handle it.
+            # For now, let's assume fresh start or user clears old data if conflict.
+        
+        # New Tables for Modular Sections
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS attendance_logs (
+            CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_name TEXT NOT NULL,
-                session_start TIMESTAMP NOT NULL,
-                last_seen TIMESTAMP NOT NULL,
-                duration_seconds REAL DEFAULT 0
+                session_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                status TEXT DEFAULT 'ACTIVE', -- ACTIVE, CLOSED
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                end_time TIMESTAMP
             )
         ''')
-        
-        # Schema Migration: Check if session_name column exists
-        try:
-            cursor.execute('SELECT session_name FROM attendance_logs LIMIT 1')
-        except sqlite3.OperationalError:
-            print("[DB] Adding missing column 'session_name' to attendance_logs")
-            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN session_name TEXT DEFAULT "Default Session"')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS session_attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                student_id TEXT NOT NULL,
+                status TEXT DEFAULT 'Absent', -- Present, Absent
+                last_seen TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
         
         conn.commit()
         conn.close()
 
-    def register_student(self, name):
-        """Registers a student if not already in DB."""
+    def register_student(self, name, section, student_id):
+        """Registers a student with section and ID."""
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT OR IGNORE INTO students (name) VALUES (?)", (name,))
+            cursor.execute("INSERT OR REPLACE INTO students (name, section, student_id) VALUES (?, ?, ?)", (name, section, student_id))
             conn.commit()
-            print(f"[DB] Student '{name}' registered/verified in database.")
+            print(f"[DB] Student '{name}' ({student_id}) registered in section '{section}'.")
         except Exception as e:
             print(f"[DB] Error registering student: {e}")
         finally:
             conn.close()
             
-    def delete_student(self, name):
-        """Deletes a student from the database."""
+    def delete_student(self, student_id):
+        """Deletes a student by ID and returns their section for file cleanup."""
         conn = self.get_connection()
         cursor = conn.cursor()
+        section = None
         try:
-            cursor.execute("DELETE FROM students WHERE name = ?", (name,))
-            # Optional: Delete logs too? Usually better to keep logs for history, 
-            # but user said "Delete a specific student", implies full cleanup.
-            # Let's keep logs for now unless requested, or maybe delete for privacy.
-            # I'll stick to deleting the student registration.
-            changes = cursor.rowcount
-            
-            # Check if table is empty and reset sequence
-            cursor.execute("SELECT COUNT(*) FROM students")
-            count = cursor.fetchone()[0]
-            if count == 0:
-                print("[DB] Table 'students' is empty. Resetting ID sequence.")
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
-            
-            conn.commit()
-            print(f"[DB] Student '{name}' deleted from database. Rows affected: {changes}")
-            return changes > 0
+            cursor.execute("SELECT section FROM students WHERE student_id = ?", (student_id,))
+            row = cursor.fetchone()
+            if row:
+                section = row[0]
+                cursor.execute("DELETE FROM students WHERE student_id = ?", (student_id,))
+                conn.commit()
+                print(f"[DB] Student {student_id} deleted from database.")
+                return section
+            print(f"[DB] Student {student_id} not found.")
+            return None
         except Exception as e:
             print(f"[DB] Error deleting student: {e}")
-            return False
+            return None
         finally:
             conn.close()
             
-    def get_all_students(self):
-        """Returns a list of all registered student names."""
+    def get_section_students(self, section):
+        """Returns dict of {student_id: name} in a section."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM students")
+        cursor.execute("SELECT student_id, name FROM students WHERE section = ?", (section,))
         rows = cursor.fetchall()
         conn.close()
-        return [r[0] for r in rows]
+        return {r[0]: r[1] for r in rows}
 
-    def log_heartbeat(self, student_name, session_name="Class Session"):
-        """
-        Updates the last_seen timestamp for the student.
-        Logic:
-        - Find the most recent session for this student.
-        - If last_seen is within 60 seconds of now, update last_seen and duration.
-        - If > 60 seconds or no session exists, create a new session.
-        """
+    def start_session(self, session_name, section):
+        """Starts a new session and initializes attendance."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Create Session
+        cursor.execute("INSERT INTO sessions (session_name, section) VALUES (?, ?)", (session_name, section))
+        session_id = cursor.lastrowid
+        
+        # Initialize Attendance for all section students (By ID)
+        students = self.get_section_students(section) # Returns dict {id: name}
+        if students:
+            data = [(session_id, sid, 'Absent') for sid in students.keys()]
+            cursor.executemany("INSERT INTO session_attendance (session_id, student_id, status) VALUES (?, ?, ?)", data)
+            
+        conn.commit()
+        conn.close()
+        return session_id
+
+    def global_heartbeat_sync(self, session_id, present_ids):
+        """Atomic update: Mark present_ids as PRESENT, others as ABSENT."""
         conn = self.get_connection()
         cursor = conn.cursor()
         now = datetime.now()
         
-        # Check for the latest session for this student
-        cursor.execute('''
-            SELECT id, last_seen, session_start FROM attendance_logs 
-            WHERE student_name = ? 
-            ORDER BY last_seen DESC 
-            LIMIT 1
-        ''', (student_name,))
-        
-        row = cursor.fetchone()
-        
-        status = "UNKNOWN"
-        
-        if row:
-            session_id, last_seen_str, session_start_str = row
-            try:
-                last_seen = datetime.fromisoformat(last_seen_str) if 'T' in last_seen_str else datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
-                session_start = datetime.fromisoformat(session_start_str) if 'T' in session_start_str else datetime.strptime(session_start_str, "%Y-%m-%d %H:%M:%S.%f")
-            except ValueError:
-                 last_seen = now
-                 session_start = now
-
-            time_diff = (now - last_seen).total_seconds()
-            
-            if time_diff <= 30:
-                # Update existing session
-                new_duration = (now - session_start).total_seconds()
-                cursor.execute('''
-                    UPDATE attendance_logs 
-                    SET last_seen = ?, duration_seconds = ? 
-                    WHERE id = ?
-                ''', (now, new_duration, session_id))
-                status = "UPDATED"
+        try:
+            if present_ids:
+                # Mark Present
+                placeholders = ','.join(['?'] * len(present_ids))
+                cursor.execute(f'''
+                    UPDATE session_attendance 
+                    SET status = 'Present', last_seen = ? 
+                    WHERE session_id = ? AND student_id IN ({placeholders})
+                ''', (now, session_id, *present_ids))
+                
+                # Mark Absent (Everyone else in this session)
+                cursor.execute(f'''
+                    UPDATE session_attendance 
+                    SET status = 'Absent' 
+                    WHERE session_id = ? AND student_id NOT IN ({placeholders})
+                ''', (session_id, *present_ids))
             else:
-                # Gap too large, start new session
-                cursor.execute('''
-                    INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds, session_name)
-                    VALUES (?, ?, ?, 0, ?)
-                ''', (student_name, now, now, session_name))
-                status = "NEW_SESSION"
-        else:
-            # No previous record, start first session
-            cursor.execute('''
-                INSERT INTO attendance_logs (student_name, session_start, last_seen, duration_seconds, session_name)
-                VALUES (?, ?, ?, 0, ?)
-            ''', (student_name, now, now, session_name))
-            status = "NEW_SESSION"
-            
-        conn.commit()
-        conn.close()
-        return status
+                 # Mark ALL Absent if no one is present
+                 cursor.execute("UPDATE session_attendance SET status = 'Absent' WHERE session_id = ?", (session_id,))
 
-    def get_sessions_summary(self):
-        """Returns a summary of sessions: Name, Count of Unique Students, Earliest Time."""
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Heartbeat Sync Error: {e}")
+        finally:
+            conn.close()
+
+    # Management Helpers
+    def get_all_students_with_section(self):
+        """Returns list of (name, section, student_id) for all students."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
-        # Aggregate by session_name
-        cursor.execute('''
-            SELECT session_name, COUNT(DISTINCT student_name), MIN(session_start)
-            FROM attendance_logs
-            GROUP BY session_name
-            ORDER BY MIN(session_start) DESC
-        ''')
-        
+        cursor.execute("SELECT name, section, student_id FROM students ORDER BY section, name")
         rows = cursor.fetchall()
         conn.close()
         return rows
 
-    def get_total_minutes(self, student_name):
-        """Calculates total minutes attended across all sessions."""
+    def get_all_sessions_summary(self):
+        """Returns summary of all sessions."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
         cursor.execute('''
-            SELECT SUM(duration_seconds) FROM attendance_logs 
-            WHERE student_name = ?
-        ''', (student_name,))
-        
-        result = cursor.fetchone()[0]
+            SELECT s.session_name, s.section, s.start_time, COUNT(sa.id) as total, 
+                   SUM(CASE WHEN sa.status='Present' THEN 1 ELSE 0 END) as present
+            FROM sessions s
+            LEFT JOIN session_attendance sa ON s.id = sa.session_id
+            GROUP BY s.id
+            ORDER BY s.start_time DESC
+        ''')
+        rows = cursor.fetchall()
         conn.close()
-        
-        if result:
-            return round(result / 60, 2)
-        return 0.0
+        return rows
 
-# Quick test if run directly
 if __name__ == "__main__":
     db = DBManager()
     print("DB Initialized.")

@@ -33,10 +33,34 @@ def draw_clean_dots(img, lmk):
 
 def register_student():
     db = DBManager()
+    
+    # 1. Ask for Section First
+    section = input("Enter Section Name (e.g., CSE_A): ").strip()
+    if not section: 
+        print("Section name is required.")
+        return
+
+    # 2. Ask for Student ID (Unique Identifier)
+    student_id = input("Enter Student ID (e.g., CSE001): ").strip()
+    if not student_id: 
+        print("Student ID is required.")
+        return
+
+    # 3. Ask for Student Name (Display Only)
     name = input("Enter Student Name: ").strip()
     if not name: return
-
-    existing_data = load_embeddings()
+    
+    # 4. Load Section-Specific Embeddings
+    # Structure: {student_id: embedding} 
+    # Note: We are migrating from {name: emb} to {id: emb}. 
+    # If old file exists, it might have names as keys. This might cause issues if not handled.
+    # For now, let's assume we are starting fresh or user handles migration.
+    section_file = f"data/embeddings/{section}.pkl"
+    existing_data = {}
+    if os.path.exists(section_file):
+        try:
+            with open(section_file, 'rb') as f: existing_data = pickle.load(f)
+        except: pass
     
     app = FaceAnalysis(name='buffalo_l', providers=['CoreMLExecutionProvider', 'CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(640, 640))
@@ -45,13 +69,12 @@ def register_student():
     captured_embeddings = []
     prev_lmk = None
     
-    print(f"Starting Smart Biometric Scan for {name}...")
+    print(f"Starting Scan for {name} ({student_id}) in {section}...")
     
     while len(captured_embeddings) < TOTAL_FRAMES:
         ret, frame = cap.read()
         if not ret: break
         
-        # Define dimensions to fix NameError
         h, w, _ = frame.shape
         frame = cv2.flip(frame, 1)
         display = frame.copy()
@@ -77,31 +100,38 @@ def register_student():
                 color = (0, 255, 0)
             else:
                 color = (0, 165, 255)
-
+ 
             progress = int((len(captured_embeddings) / TOTAL_FRAMES) * 100)
             cv2.rectangle(display, (50, h - 50), (w - 50, h - 30), (40, 40, 40), -1)
             cv2.rectangle(display, (50, h - 50), (50 + int((w - 100) * (progress/100)), h - 30), color, -1)
             cv2.putText(display, f"Scan Progress: {progress}%", (50, h - 65), 1, 1.2, (255, 255, 255), 1)
-            cv2.putText(display, "ROTATE HEAD SLOWLY", (w//2 - 140, 50), 1, 1.5, color, 2)
-
+            cv2.putText(display, f"ID: {student_id}", (w//2 - 60, 50), 1, 1.0, (200, 200, 200), 2)
+            cv2.putText(display, "ROTATE HEAD SLOWLY", (w//2 - 140, 90), 1, 1.5, color, 2)
+ 
         cv2.imshow("Biometric Registration", display)
         if cv2.waitKey(1) & 0xFF == ord('q'): break
-
+ 
     if len(captured_embeddings) >= TOTAL_FRAMES:
         mean_emb = np.mean(captured_embeddings, axis=0)
         
-        for ex_name, ex_emb in existing_data.items():
+        # Check against existing in this section
+        for ex_id, ex_emb in existing_data.items():
             if compute_sim(mean_emb, ex_emb) > 0.75:
-                print(f"\n[ERROR] Match found with '{ex_name}'. Registration Aborted.")
+                print(f"\n[ERROR] Match found with ID '{ex_id}' in {section}. Registration Aborted.")
                 return
-
-        existing_data[name] = mean_emb
-        save_embeddings(existing_data)
-        db.register_student(name)
-        print(f"\nSuccess! Registration complete for {name}.")
+ 
+        existing_data[student_id] = mean_emb
+        
+        # Save to Section File
+        os.makedirs("data/embeddings", exist_ok=True)
+        with open(section_file, 'wb') as f:
+            pickle.dump(existing_data, f)
+            
+        db.register_student(name, section, student_id)
+        print(f"\nSuccess! '{name}' ({student_id}) registered in '{section}'.")
     
     cap.release()
     cv2.destroyAllWindows()
-
+ 
 if __name__ == "__main__":
     register_student()

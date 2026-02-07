@@ -1,17 +1,22 @@
 import os
 import pickle
 from core.db_manager import DBManager
+from datetime import datetime
 
 EMBEDDINGS_PATH = "data/embeddings.pkl"
 
 def load_embeddings():
-    if os.path.exists(EMBEDDINGS_PATH):
-        try:
-            with open(EMBEDDINGS_PATH, 'rb') as f:
-                return pickle.load(f)
-        except Exception:
-            return {}
-    return {}
+    """Scans data/embeddings/ for all .pkl files and merges them."""
+    combined_data = {}
+    if os.path.exists("data/embeddings"):
+        for f in os.listdir("data/embeddings"):
+            if f.endswith(".pkl"):
+                try:
+                    with open(os.path.join("data/embeddings", f), 'rb') as pkl:
+                        data = pickle.load(pkl)
+                        combined_data.update(data)
+                except: pass
+    return combined_data
 
 def save_embeddings(data):
     os.makedirs(os.path.dirname(EMBEDDINGS_PATH), exist_ok=True)
@@ -21,60 +26,127 @@ def save_embeddings(data):
 def list_users(db):
     print("\n--- Registered Students ---")
     
-    # Get from DB
-    db_students = set(db.get_all_students())
+    # Get from DB: List of (name, section, student_id)
+    try:
+        db_students = db.get_all_students_with_section()
+    except AttributeError:
+        print("Error: DBManager missing 'get_all_students_with_section'")
+        return
+
+    # Organize by Section
+    students_by_section = {}
+    db_ids = set()
+    for name, section, student_id in db_students:
+        if section not in students_by_section: students_by_section[section] = []
+        students_by_section[section].append((name, student_id))
+        db_ids.add(student_id)
     
-    # Get from Pickle
-    pkl_data = load_embeddings()
-    pkl_students = set(pkl_data.keys())
-    
-    all_students = sorted(list(db_students | pkl_students))
-    
-    if not all_students:
+    # Get from Pickle (All sections)
+    pkl_ids = set()
+    pkl_id_to_name = {} # Try to guess name if possible? No, keys are IDs now.
+    # Check all Section PKLs in data/embeddings/
+    if os.path.exists("data/embeddings"):
+        for f in os.listdir("data/embeddings"):
+            if f.endswith(".pkl"):
+                try:
+                    with open(os.path.join("data/embeddings", f), 'rb') as pkl:
+                        data = pickle.load(pkl)
+                        pkl_ids.update(data.keys())
+                except: pass
+
+    if not db_students and not pkl_ids:
         print("No students found.")
     else:
-        print(f"{'Name':<20} | {'DB':<5} | {'Pickle':<6}")
-        print("-" * 35)
-        for name in all_students:
-            in_db = "Yes" if name in db_students else "No"
-            in_pkl = "Yes" if name in pkl_students else "No"
-            print(f"{name:<20} | {in_db:<5} | {in_pkl:<6}")
+        print(f"{'Section':<10} | {'Student ID':<15} | {'Name':<20} | {'Status'}")
+        print("-" * 65)
+        
+        # Print DB Students
+        for section, students in students_by_section.items():
+             for name, student_id in students:
+                sid_str = str(student_id) if student_id else "N/A"
+                status = "DB+PKL" if sid_str in pkl_ids else "DB Only"
+                print(f"{section:<10} | {sid_str:<15} | {name:<20} | {status}")
+        
+        # Print Orphaned Pickle Students (IDs only)
+        orphans = pkl_ids - db_ids
+        if orphans:
+             print("-" * 65)
+             print("Found in Pickle but NOT in DB (Orphans - IDs Only):")
+             for sid in orphans:
+                 print(f"{'Unknown':<10} | {str(sid):<15} | {'Unknown':<20} | PKL Only")
+
     print("---------------------------\n")
 
 def delete_user(db):
-    name = input("Enter name to delete: ").strip()
-    if not name:
+    student_id = input("Enter Student ID to delete: ").strip()
+    if not student_id: return
+
+    # 1. Delete from DB and Get Section
+    section = db.delete_student(student_id)
+    
+    if not section:
+        print(f"Student ID '{student_id}' not found in database or could not be deleted.")
         return
 
-    # Delete from DB
-    db_deleted = db.delete_student(name)
-    
-    # Delete from Pickle
-    data = load_embeddings()
-    if name in data:
-        del data[name]
-        save_embeddings(data)
-        pkl_deleted = True
-        print(f"[Pickle] Removed '{name}' from embeddings.")
-    else:
-        pkl_deleted = False
-        print(f"[Pickle] '{name}' not found in embeddings.")
+    print(f"Student belonged to section: '{section}'")
 
-    if db_deleted or pkl_deleted:
-        print(f"Successfully deleted/cleaned up '{name}'.")
+    # 2. Delete from Specific Section File
+    section_file = f"data/embeddings/{section}.pkl"
+    if os.path.exists(section_file):
+        try:
+            with open(section_file, 'rb') as f: data = pickle.load(f)
+            if student_id in data:
+                del data[student_id]
+                with open(section_file, 'wb') as f: pickle.dump(data, f)
+                print(f"[System] Removed '{student_id}' from {section_file}.")
+            else:
+                print(f"[System] '{student_id}' not found in {section_file}.")
+        except Exception as e:
+            print(f"[Error] Failed to update section file: {e}")
     else:
-        print(f"Student '{name}' not found anywhere.")
+        print(f"[System] Section file {section_file} not found.")
+
+    # 3. Scrub from Persistent Caches
+    cache_dir = "data/persistent_cache"
+    if os.path.exists(cache_dir):
+        scrub_count = 0
+        for fname in os.listdir(cache_dir):
+            if fname.startswith(f"cache_{section}_") and fname.endswith(".pkl"):
+                fpath = os.path.join(cache_dir, fname)
+                try:
+                    with open(fpath, 'rb') as f: cache_data = pickle.load(f)
+                    if student_id in cache_data:
+                        del cache_data[student_id]
+                        with open(fpath, 'wb') as f: pickle.dump(cache_data, f)
+                        scrub_count += 1
+                except: pass
+        print(f"[System] Scrubbed '{student_id}' from {scrub_count} persistent cache files.")
+
+    print(f"Successfully deleted '{student_id}' from all records.")
 
 def list_sessions(db):
     print("\n--- Session Summary ---")
-    rows = db.get_sessions_summary()
+    try:
+        rows = db.get_all_sessions_summary() # New method
+    except AttributeError:
+        print("Error: DBManager missing 'get_all_sessions_summary'")
+        return
+
     if not rows:
         print("No sessions recorded.")
     else:
-        print(f"{'Session Name':<30} | {'Students':<8} | {'Start Time'}")
-        print("-" * 65)
-        for name, count, start_time in rows:
-            print(f"{name:<30} | {count:<8} | {start_time}")
+        # s.session_name, s.section, s.start_time, total, present
+        print(f"{'Session':<20} | {'Section':<10} | {'Time':<20} | {'Attended':<10}")
+        print("-" * 75)
+        for name, section, start, total, present in rows:
+            # attended_str = f"{present}/{total}"
+            # Formatting timestamp
+            try:
+                t_obj = datetime.strptime(str(start), "%Y-%m-%d %H:%M:%S.%f")
+                t_str = t_obj.strftime("%m-%d %H:%M")
+            except: t_str = str(start)[:16]
+            
+            print(f"{name:<20} | {section:<10} | {t_str:<20} | {present}/{total}")
     print("-----------------------\n")
 
 def main():

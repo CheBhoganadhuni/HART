@@ -14,14 +14,12 @@ from core.db_manager import DBManager
 EMBEDDINGS_PATH = "data/embeddings.pkl"
 SIMILARITY_THRESHOLD = 0.45
 RETRY_COOLDOWN = 1.0 
-HEARTBEAT_INTERVAL = 10.0 
 UNKNOWN_SAVE_THRESHOLD = 15.0 # Increased for stability
 
 # Shared State
 recognition_queue = queue.Queue(maxsize=10)
 tracked_identities = {} 
 last_recognition_attempt = {} 
-last_heartbeat_time = {} 
 reid_events = {} 
 track_start_time = {} 
 saved_unknowns = set()
@@ -73,12 +71,13 @@ class AsyncVideoStream:
         self.cap.release()
 
 class RecognitionWorker(threading.Thread):
-    def __init__(self, session_name):
+    def __init__(self, session_name, known_embeddings, id_to_name):
         super().__init__()
         self.session_name = session_name
         self.daemon = True
         self.running = True
-        self.known_embeddings = load_embeddings()
+        self.known_embeddings = known_embeddings
+        self.id_to_name = id_to_name # {student_id: name}
         self.db = DBManager()
         
         providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
@@ -101,7 +100,8 @@ class RecognitionWorker(threading.Thread):
                 
                 # 1. Priority Recognition: Check Session Cache (Multi-Vector)
                 # Strict Session Cache: Higher threshold (0.50)
-                for name, cached_embs in session_cache.items():
+                # cache keys are student_ids
+                for student_id, cached_embs in session_cache.items():
                     # Handle legacy cache format (just in case) or new list format
                     if not isinstance(cached_embs, list): cached_embs = [cached_embs]
                     
@@ -110,15 +110,15 @@ class RecognitionWorker(threading.Thread):
                         score = np.dot(face.embedding, cached_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(cached_emb))
                         if score > 0.50: # Increased from 0.40
                              if score > max_score:
-                                 max_score, best_match = score, name
+                                 max_score, best_match = score, student_id
                                  match_source = "cache"
                 
                 # 2. Standard Search: If no cache match, check full DB
                 if not best_match:
-                    for name, known_emb in self.known_embeddings.items():
+                    for student_id, known_emb in self.known_embeddings.items():
                         score = np.dot(face.embedding, known_emb) / (np.linalg.norm(face.embedding) * np.linalg.norm(known_emb))
                         if score > max_score:
-                            max_score, best_match = score, name
+                            max_score, best_match = score, student_id
                             match_source = "db"
                 
                 if max_score > SIMILARITY_THRESHOLD:
@@ -186,11 +186,6 @@ class RecognitionWorker(threading.Thread):
 
                         # Update Verification Timestamp (for Throttling)
                         last_verified_time[track_id] = time.time()
-
-                        if best_match in last_heartbeat_time:
-                             reid_events[track_id] = time.time()
-                        threading.Thread(target=self.db.log_heartbeat, args=(best_match, self.session_name), daemon=True).start()
-                        last_heartbeat_time[best_match] = time.time()
             except Exception as e: print(f"Worker Error: {e}")
             finally: recognition_queue.task_done()
 
@@ -207,16 +202,58 @@ def calc_iou(box1, box2):
     area2 = (box2[2]-box2[0])*(box2[3]-box2[1])
     return inter / (area1 + area2 - inter + 1e-6)
 
+def list_available_sections():
+    sections = []
+    if os.path.exists("data/embeddings"):
+        for f in os.listdir("data/embeddings"):
+            if f.endswith(".pkl"):
+                sections.append(f.replace(".pkl", ""))
+    return sorted(sections)
+
 def main():
-    parser = argparse.ArgumentParser(description="MOT Attendance System")
+    parser = argparse.ArgumentParser(description="Modular Attendance System")
     parser.add_argument('--session', type=str, help='Session Name')
+    parser.add_argument('--section', type=str, help='Section Name (Required for Modular Loading)')
     parser.add_argument('--source', type=str, default='0', help='Video source (0 for webcam or path)')
     parser.add_argument('--export', action='store_true', help='Enable video export')
     parser.add_argument('--cache', type=str, help='Path to selective cache pkl to load (Headstart)')
     args = parser.parse_args()
 
+    # Section Validation
+    available_sections = list_available_sections()
+    
+    if not args.section:
+        print("\n[Error] Section name is required.")
+        if available_sections:
+            print(f"Available Sections: {', '.join(available_sections)}")
+        else:
+            print("No sections found. Please run 'register_student.py' first.")
+        print("Usage: python3 main.py --section <SECTION_NAME>\n")
+        return
+
+    section_name = args.section
+    
+    # Check if section exists
+    section_file = f"data/embeddings/{section_name}.pkl"
+    if not os.path.exists(section_file):
+         print(f"\n[Error] Section '{section_name}' does not exist.")
+         if available_sections:
+            print(f"Did you mean? {', '.join(available_sections)}")
+         return
+
     session_name = args.session or f"Session_{int(time.time())}"
-    print(f"[System] Starting Session: {session_name}")
+    
+    print(f"[System] Starting Session: {session_name} for Section: {section_name}")
+    
+    # 1. Modular Loading: Load ONLY this section's embeddings
+    known_embeddings = {}
+    try:
+        with open(section_file, 'rb') as f: known_embeddings = pickle.load(f)
+        # keys are now student_ids
+        print(f"[System] Loaded {len(known_embeddings)} student signatures from {section_name}.")
+    except Exception as e:
+        print(f"[System] Failed to load section embeddings: {e}")
+        return
 
     # Selective Cache Loading (Headstart)
     if args.cache:
@@ -230,16 +267,32 @@ def main():
                 print(f"[System] Failed to load cache: {e}")
         else:
             print(f"[System] Warning: Cache file not found at {args.cache}")
-
-    worker = RecognitionWorker(session_name).start()
     
+    # Initialize DB Session
+    db = DBManager()
+    session_id = db.start_session(session_name, section_name)
+    print(f"[System] DB Session Started (ID: {session_id})")
+    
+    # Load ID -> Name Mapping for Display
+    # db.get_section_students returns dict {id: name}
+    id_to_name = db.get_section_students(section_name)
+    
+    worker = RecognitionWorker(session_name, known_embeddings, id_to_name).start() # Pass specific embeddings & mapping
+    
+    # ... stream setup ...
     source = args.source
     is_mp4 = source != '0'
     stream = AsyncVideoStream(source, stride=2 if is_mp4 else 3).start()
     
+    # ... model setup ...
     model = YOLO('yolo11n.pt')
     session_start = time.time()
     
+    # Global Pulse Timers
+    last_global_pulse = time.time()
+    
+    # Export Setup ... (existing) ...
+
     # Export Setup
     video_writer = None
     if args.export:
@@ -255,11 +308,20 @@ def main():
              h, w = sample_frame.shape[:2]
              video_writer = cv2.VideoWriter(export_path, fourcc, 30.0 if is_mp4 else 30.0, (w, h))
              print(f"[System] Export enabled: Recording to {export_path}")
-    
+
     try:
         while not stream.stopped or not stream.queue.empty():
             loop_start = time.time()
             frame_idx, frame = stream.read()
+            
+            # Global Heartbeat Pulse (Every 10s)
+            if time.time() - last_global_pulse > 10.0:
+                # Get all currently verified users (Student IDs)
+                present_ids = [sid for tid, sid in tracked_identities.items() if sid]
+                
+                # Sync to DB (Bulk Update)
+                threading.Thread(target=db.global_heartbeat_sync, args=(session_id, present_ids), daemon=True).start()
+                last_global_pulse = time.time()
             
             # Dynamic Detection: Lower conf to 0.15 for better recall (Regional Tuning)
             results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15)
@@ -296,6 +358,30 @@ def main():
                     else:
                         # Update last seen time for known students
                         last_seen_time[name] = time.time()
+                    
+                    # Visitor Pulse Logic
+                    is_pulsing = False
+                    if tid in tracked_identities:
+                        student_id = tracked_identities[tid]
+                        display_name = id_to_name.get(student_id, student_id) # Lookup Name
+                        
+                        # Blue Tag Logic (Verified < 6s ago, or Re-ID event)
+                        # Use student_id for lookup in metadata/timers
+                        is_blue = False
+                        if tid in reid_metadata and (time.time() - reid_metadata[tid]['time'] < 6.0):
+                            is_blue = True
+                        
+                        # Green User Verification Throttling
+                        # Use student_id or track_id? 
+                        # Logic uses track_id for "Re-verify every 120s" which is correct per-track
+                        
+                        color = (255, 144, 30) if is_blue else (0, 255, 0)
+                        label = f"{tid}-{display_name}"
+                        if is_blue: label += " ✅"
+                        
+                        # Draw Box
+                        cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
+                        cv2.putText(frame, label, (int(box[0]), int(box[1]) - 10), 0, 0.6, color, 2)
                     
                     # Visitor Pulse Logic
                     is_pulsing = False
@@ -390,20 +476,22 @@ def main():
         # Persistent Cache Export
         try:
             os.makedirs("data/persistent_cache", exist_ok=True)
-            cache_name = f"cache_{session_name}_{int(time.time())}.pkl"
+            # Modular Cache Name: cache_[section]_[session]_[timestamp].pkl
+            cache_name = f"cache_{section_name}_{session_name}_{int(time.time())}.pkl"
             cache_path = os.path.join("data/persistent_cache", cache_name)
             with open(cache_path, 'wb') as f:
                 pickle.dump(session_cache, f)
-            print(f"[System] Session cache exported to {cache_path}")
+            print(f"[System] Section cache exported to {cache_path}")
         except Exception as e:
             print(f"[System] Failed to export cache: {e}")
         
-        # Final Cleanup: Flush recent heartbeats
-        print("Flushing final heartbeats...")
-        db = DBManager() # New instance for main thread cleanup
-        for name, timestamp in last_seen_time.items():
-            if time.time() - timestamp < 5.0:
-                print(f"Logging final heartbeat for: {name}")
-                db.log_heartbeat(name, session_name)
+        # Final Cleanup: Flush recent heartbeats (Wait... Heartbeats are now Global Pulse)
+        # We can do one final pulse here
+        print("Flushing final pulse...")
+        try:
+             present_students = [name for tid, name in tracked_identities.items() if name]
+             db.global_heartbeat_sync(session_id, present_students)
+        except: pass
+
 
 if __name__ == "__main__": main()
