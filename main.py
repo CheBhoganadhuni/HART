@@ -30,6 +30,7 @@ recognition_history = {} # {track_id: [name1, name2, ...]} - Consensus buffer
 reid_metadata = {} # {track_id: {"source": "cache/db", "time": timestamp}} - For Blue Tag logic
 last_verified_time = {} # {track_id: timestamp} - For Green User Throttling (120s)
 last_shadow_time = {} # {track_id: timestamp} - For Shadow Updates (30s)
+seen_in_pulse_window = set() # {student_id} - Accumulates seen IDs for 10s pulse
 
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
@@ -316,15 +317,18 @@ def main():
             
             # Global Heartbeat Pulse (Every 10s)
             if time.time() - last_global_pulse > 10.0:
-                # Get all currently verified users (Student IDs)
-                present_ids = [sid for tid, sid in tracked_identities.items() if sid]
+                # Pulse Logic: Only mark students seen in the accumulation window
+                present_ids = list(seen_in_pulse_window)
                 
                 # Sync to DB (Bulk Update)
                 threading.Thread(target=db.global_heartbeat_sync, args=(session_id, present_ids), daemon=True).start()
+                
+                # Reset Window
+                seen_in_pulse_window.clear()
                 last_global_pulse = time.time()
             
-            # Dynamic Detection: Lower conf to 0.15 for better recall (Regional Tuning)
-            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15)
+            # Dynamic Detection: Agnostic NMS True, IOU=0.5 to prevent ghosting
+            results = model.track(frame, persist=True, tracker="botsort_custom.yaml", device="mps", verbose=False, classes=0, agnostic_nms=True, conf=0.15, iou=0.5)
             
             current_ids = []
             if results and results[0].boxes.id is not None:
@@ -341,6 +345,11 @@ def main():
                         continue
                         
                     current_ids.append(tid)
+
+                    # Accumulate for Heartbeat Pulse
+                    if tid in tracked_identities and tracked_identities[tid]:
+                         seen_in_pulse_window.add(tracked_identities[tid])
+
                     name = tracked_identities.get(tid)
                     
                     if not name:
@@ -351,37 +360,22 @@ def main():
                         
                         if time.time() - track_start_time.get(tid, time.time()) > UNKNOWN_SAVE_THRESHOLD:
                             if tid not in saved_unknowns:
-                                os.makedirs("data/unknown_faces", exist_ok=True)
+                                save_dir = f"data/unknown_faces/{session_name}"
+                                os.makedirs(save_dir, exist_ok=True)
+                                
                                 face = frame[int(box[1]):int(box[3]), int(box[0]):int(box[2])]
-                                cv2.imwrite(f"data/unknown_faces/unknown_{session_name}_{tid}.jpg", face)
+                                img_path = f"{save_dir}/unknown_{tid}_{int(time.time())}.jpg"
+                                cv2.imwrite(img_path, face)
+                                
+                                # Log to DB
+                                threading.Thread(target=db.log_unknown_detection, args=(session_id, session_name, tid, img_path), daemon=True).start()
+                                
                                 saved_unknowns.add(tid)
                     else:
                         # Update last seen time for known students
                         last_seen_time[name] = time.time()
                     
-                    # Visitor Pulse Logic
-                    is_pulsing = False
-                    if tid in tracked_identities:
-                        student_id = tracked_identities[tid]
-                        display_name = id_to_name.get(student_id, student_id) # Lookup Name
-                        
-                        # Blue Tag Logic (Verified < 6s ago, or Re-ID event)
-                        # Use student_id for lookup in metadata/timers
-                        is_blue = False
-                        if tid in reid_metadata and (time.time() - reid_metadata[tid]['time'] < 6.0):
-                            is_blue = True
-                        
-                        # Green User Verification Throttling
-                        # Use student_id or track_id? 
-                        # Logic uses track_id for "Re-verify every 120s" which is correct per-track
-                        
-                        color = (255, 144, 30) if is_blue else (0, 255, 0)
-                        label = f"{tid}-{display_name}"
-                        if is_blue: label += " ✅"
-                        
-                        # Draw Box
-                        cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
-                        cv2.putText(frame, label, (int(box[0]), int(box[1]) - 10), 0, 0.6, color, 2)
+                    # [Removed Duplicate Drawing Block]
                     
                     # Visitor Pulse Logic
                     is_pulsing = False
@@ -422,41 +416,50 @@ def main():
                                 if should_shadow: last_shadow_time[tid] = time.time()
 
                     # UI Drawing
-                    color = (0, 255, 0) # Green by default for identified
-                    label = name if name else f"ID:{tid} Identifying..."
-                    
-                    # Blue Tag Logic: Session Re-ID (Duration increased to 6s)
-                    if name and tid in reid_metadata:
-                        meta = reid_metadata[tid]
-                        if meta['source'] == 'cache' and (time.time() - meta['time'] < 6.0):
-                             color = (255, 0, 0) # Blue (BGR)
-                             label = f"{name} (Re-ID)"
-                    
-                    # Confirming Label Logic
-                    if name and is_confirming:
-                         label = f"{name} (Confirming...)"
-                    
-                    if not name:
-                         color = (0, 165, 255) # Orange for identifying
+                    # UI Drawing (Consolidated)
+                    color = (0, 165, 255) # Orange (Identifying)
+                    label = f"ID:{tid} Identifying..."
 
-                    # Graceful Unknowns: Visitor Mode
-                    if tid in blacklisted_tracks and not name:
+                    if name:
+                        display_name = id_to_name.get(tracked_identities[tid], name)
+                        color = (0, 255, 0) # Green (Verified)
+                        label = display_name
+                        
+                        # Blue Tag: Re-ID (< 6s)
+                        if tid in reid_metadata and (time.time() - reid_metadata[tid]['time'] < 6.0):
+                             color = (255, 0, 0) # Blue
+                             label = f"{display_name} (Re-ID)"
+                        
+                        # Confirming
+                        if is_confirming:
+                             label = f"{display_name} (Confirming...)"
+                    
+                    elif tid in blacklisted_tracks:
+                        # Visitor Logic
+                        color = (192, 192, 192) # Gray
+                        label = f"Visitor ID:{tid}"
                         if is_pulsing:
-                             color = (0, 165, 255) # Orange (Pulse Active)
+                             color = (0, 165, 255) # Orange
                              label = f"Visitor ID:{tid} (Checking...)"
-                        else:
-                             color = (192, 192, 192) # Gray
-                             label = f"Visitor ID:{tid}"
                     
                     cv2.rectangle(frame, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2)
-                    cv2.putText(frame, label, (int(box[0]), int(box[1])-10), 1, 1, color, 2)
+                    
+                    # Label Logic: Ensure no overlap and stay on screen
+                    text_size = cv2.getTextSize(label, 0, 0.6, 2)[0]
+                    lbl_x = int(box[0])
+                    lbl_y = int(box[1]) - 10
+                    if lbl_y < 20: lbl_y = int(box[1]) + 20 # Push down if too high
+                    
+                    cv2.putText(frame, label, (lbl_x, lbl_y), 0, 0.6, color, 2)
 
 
-            # Dashboard
+            # Dashboard (Top-Left, Always on top)
             fps = 1.0 / (time.time() - loop_start)
             elapsed = time.strftime("%M:%S", time.gmtime(time.time() - session_start))
             prog = f" | {int((frame_idx/stream.total_frames)*100)}%" if is_mp4 else ""
-            cv2.putText(frame, f"FPS: {fps:.1f} | Live: {len(current_ids)} | {elapsed}{prog}", (20, 30), 1, 1.2, (255,255,255), 2)
+            status_text = f"FPS: {fps:.1f} | Live: {len(current_ids)} | Time: {elapsed}{prog}"
+            
+            cv2.putText(frame, status_text, (20, 30), 0, 0.7, (255, 255, 255), 2)
             
             if video_writer:
                 video_writer.write(frame)
@@ -466,6 +469,13 @@ def main():
 
     finally:
         stream.stop()
+        
+        # Close Session in DB
+        try:
+            db.close_session(session_id)
+        except Exception as e:
+            print(f"[System] Failed to close session: {e}")
+
         if video_writer:
             video_writer.release()
             print("[System] Export saved.")

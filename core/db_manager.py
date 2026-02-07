@@ -35,8 +35,13 @@ class DBManager:
         except sqlite3.OperationalError:
             print("[DB] Adding missing column 'student_id' to students")
             cursor.execute('ALTER TABLE students ADD COLUMN student_id TEXT')
-            # Note: Existing rows will have NULL student_id. User might need to clear DB or we handle it.
-            # For now, let's assume fresh start or user clears old data if conflict.
+            
+        # Schema Migration: Check if session_name column exists in session_attendance
+        try:
+            cursor.execute('SELECT session_name FROM session_attendance LIMIT 1')
+        except sqlite3.OperationalError:
+             print("[DB] Adding missing column 'session_name' to session_attendance")
+             cursor.execute('ALTER TABLE session_attendance ADD COLUMN session_name TEXT')
         
         # New Tables for Modular Sections
         cursor.execute('''
@@ -54,9 +59,22 @@ class DBManager:
             CREATE TABLE IF NOT EXISTS session_attendance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id INTEGER,
+                session_name TEXT, -- Added for easier querying
                 student_id TEXT NOT NULL,
                 status TEXT DEFAULT 'Absent', -- Present, Absent
                 last_seen TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS unknown_detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                session_name TEXT,
+                track_id INTEGER,
+                image_path TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             )
         ''')
@@ -99,6 +117,19 @@ class DBManager:
         finally:
             conn.close()
             
+    def delete_section_data(self, section):
+        """Deletes all students in a section."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM students WHERE section = ?", (section,))
+            conn.commit()
+            print(f"[DB] All students in section '{section}' deleted.")
+        except Exception as e:
+            print(f"[DB] Error deleting section data: {e}")
+        finally:
+            conn.close()
+            
     def get_section_students(self, section):
         """Returns dict of {student_id: name} in a section."""
         conn = self.get_connection()
@@ -120,42 +151,62 @@ class DBManager:
         # Initialize Attendance for all section students (By ID)
         students = self.get_section_students(section) # Returns dict {id: name}
         if students:
-            data = [(session_id, sid, 'Absent') for sid in students.keys()]
-            cursor.executemany("INSERT INTO session_attendance (session_id, student_id, status) VALUES (?, ?, ?)", data)
+            data = [(session_id, session_name, sid, 'Absent') for sid in students.keys()]
+            cursor.executemany("INSERT INTO session_attendance (session_id, session_name, student_id, status) VALUES (?, ?, ?, ?)", data)
             
         conn.commit()
         conn.close()
         return session_id
+        
+    def close_session(self, session_id):
+        """Closes a session and records end time."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            now = datetime.now()
+            cursor.execute("UPDATE sessions SET status = 'CLOSED', end_time = ? WHERE id = ?", (now, session_id))
+            conn.commit()
+            print(f"[DB] Session {session_id} closed at {now}.")
+        except Exception as e:
+             print(f"[DB] Error closing session: {e}")
+        finally:
+            conn.close()
 
     def global_heartbeat_sync(self, session_id, present_ids):
-        """Atomic update: Mark present_ids as PRESENT, others as ABSENT."""
+        """Atomic update: Reset session to Absent, then mark present_ids as Present."""
         conn = self.get_connection()
         cursor = conn.cursor()
         now = datetime.now()
         
         try:
+            # 1. Atomic Reset: Mark EVERYONE in this session as 'Absent'
+            cursor.execute("UPDATE session_attendance SET status = 'Absent' WHERE session_id = ?", (session_id,))
+
+            # 2. Mark Present: Only those who are currently detected
             if present_ids:
-                # Mark Present
                 placeholders = ','.join(['?'] * len(present_ids))
                 cursor.execute(f'''
                     UPDATE session_attendance 
                     SET status = 'Present', last_seen = ? 
                     WHERE session_id = ? AND student_id IN ({placeholders})
                 ''', (now, session_id, *present_ids))
-                
-                # Mark Absent (Everyone else in this session)
-                cursor.execute(f'''
-                    UPDATE session_attendance 
-                    SET status = 'Absent' 
-                    WHERE session_id = ? AND student_id NOT IN ({placeholders})
-                ''', (session_id, *present_ids))
-            else:
-                 # Mark ALL Absent if no one is present
-                 cursor.execute("UPDATE session_attendance SET status = 'Absent' WHERE session_id = ?", (session_id,))
-
+            
             conn.commit()
         except Exception as e:
             print(f"[DB] Heartbeat Sync Error: {e}")
+        finally:
+            conn.close()
+
+    def log_unknown_detection(self, session_id, session_name, track_id, image_path):
+        """Logs an unknown detection event."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO unknown_detections (session_id, session_name, track_id, image_path) VALUES (?, ?, ?, ?)", 
+                           (session_id, session_name, track_id, image_path))
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Error logging unknown detection: {e}")
         finally:
             conn.close()
 

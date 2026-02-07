@@ -149,6 +149,58 @@ def list_sessions(db):
             print(f"{name:<20} | {section:<10} | {t_str:<20} | {present}/{total}")
     print("-----------------------\n")
 
+def manage_sections(db):
+    while True:
+        print("\n=== Manage Sections ===")
+        print("1. Create Section")
+        print("2. Delete Section (HAZARD)")
+        print("3. Back")
+        
+        choice = input("Select option: ").strip()
+        
+        if choice == '1':
+            name = input("Enter New Section Name: ").strip()
+            if name:
+                path = f"data/embeddings/{name}.pkl"
+                if os.path.exists(path):
+                    print(f"Section '{name}' already exists.")
+                else:
+                    # Create empty pickle
+                    os.makedirs("data/embeddings", exist_ok=True)
+                    with open(path, 'wb') as f: pickle.dump({}, f)
+                    print(f"Section '{name}' created.")
+        
+        elif choice == '2':
+            name = input("Enter Section Name to DELETE: ").strip()
+            confirm = input(f"WARNING: This will delete ALL students and data for '{name}'. Type 'yes' to confirm: ").strip()
+            
+            if confirm.lower() == 'yes':
+                # 1. Delete DB Data
+                db.delete_section_data(name)
+                
+                # 2. Delete Embedding File
+                path = f"data/embeddings/{name}.pkl"
+                if os.path.exists(path):
+                    os.remove(path)
+                    print(f"Deleted {path}")
+                else:
+                    print(f"File {path} not found.")
+                
+                # 3. Delete Persistent Caches
+                cache_dir = "data/persistent_cache"
+                if os.path.exists(cache_dir):
+                    count = 0
+                    for f in os.listdir(cache_dir):
+                        if f.startswith(f"cache_{name}_"):
+                            os.remove(os.path.join(cache_dir, f))
+                            count += 1
+                    print(f"Deleted {count} cache files.")
+            else:
+                print("Deletion cancelled.")
+        
+        elif choice == '3':
+            break
+
 def main():
     db = DBManager()
     while True:
@@ -156,7 +208,8 @@ def main():
         print("1. List Students")
         print("2. Delete Student")
         print("3. View Sessions")
-        print("4. Exit")
+        print("4. Manage Sections")
+        print("5. Exit")
         
         choice = input("Select option: ").strip()
         
@@ -167,6 +220,8 @@ def main():
         elif choice == '3':
             list_sessions(db)
         elif choice == '4':
+            manage_sections(db)
+        elif choice == '5':
             print("Exiting.")
             break
         else:
