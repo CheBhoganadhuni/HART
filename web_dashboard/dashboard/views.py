@@ -11,6 +11,8 @@ from django.conf import settings
 # Global Process Handle (Simple singleton for demo)
 CV_PROCESS = None
 SESSION_METADATA = {}
+PROCESS_TYPE = None  # "webcam" | "mp4" | None - Global lock
+MP4_PROGRESS = {"frame": 0, "total": 0, "status": "idle"}  # Progress tracking
 
 # Paths
 PROJECT_ROOT = settings.BASE_DIR.parent
@@ -19,6 +21,8 @@ STREAM_PATH = os.path.join(PROJECT_ROOT, "data/live_stream.jpg")
 DB_PATH = os.path.join(PROJECT_ROOT, "data/attendance.db")
 EMBEDDINGS_DIR = os.path.join(PROJECT_ROOT, "data/embeddings")
 CACHE_DIR = os.path.join(PROJECT_ROOT, "data/persistent_cache")
+UPLOADS_DIR = os.path.join(PROJECT_ROOT, "data/uploads")
+MP4_PROGRESS_PATH = os.path.join(PROJECT_ROOT, "data/mp4_progress.json")
 
 
 def index(request):
@@ -103,14 +107,15 @@ def video_feed(request):
 
 @csrf_exempt
 def start_session(request):
-    """Starts the main.py subprocess."""
-    global CV_PROCESS, SESSION_METADATA
+    """Starts the main.py subprocess for webcam."""
+    global CV_PROCESS, SESSION_METADATA, PROCESS_TYPE
     
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
     
+    # Global lock check
     if CV_PROCESS is not None and CV_PROCESS.poll() is None:
-        return JsonResponse({"status": "running", "message": "Session already active"})
+        return JsonResponse({"error": f"System busy ({PROCESS_TYPE})", "status": "busy"}, status=409)
     
     try:
         data = json.loads(request.body)
@@ -154,6 +159,7 @@ def start_session(request):
     
     try:
         CV_PROCESS = subprocess.Popen(cmd, cwd=PROJECT_ROOT)
+        PROCESS_TYPE = "webcam"
         SESSION_METADATA = {"section": section, "start_time": time.time()}
         return JsonResponse({"status": "started", "pid": CV_PROCESS.pid})
     except Exception as e:
@@ -163,7 +169,7 @@ def start_session(request):
 @csrf_exempt
 def stop_session(request):
     """Sends stop signal to main.py."""
-    global CV_PROCESS
+    global CV_PROCESS, PROCESS_TYPE
     
     # Write Stop Command
     try:
@@ -186,6 +192,7 @@ def stop_session(request):
         CV_PROCESS.terminate()
     
     CV_PROCESS = None
+    PROCESS_TYPE = None
     return JsonResponse({"status": "stopped"})
 
 
@@ -348,3 +355,285 @@ def get_stats(request):
                 pass
     
     return JsonResponse(stats)
+
+
+# ============================================
+# MP4 PROCESSING ENDPOINTS
+# ============================================
+
+def mp4_page(request):
+    """Renders the MP4 processing page."""
+    # Get available sections
+    sections = []
+    if os.path.exists(EMBEDDINGS_DIR):
+        for f in os.listdir(EMBEDDINGS_DIR):
+            if f.endswith(".pkl"):
+                sections.append(f.replace(".pkl", ""))
+    
+    # Check if system is busy
+    is_busy = CV_PROCESS is not None and CV_PROCESS.poll() is None
+    
+    context = {
+        "sections": sorted(sections),
+        "is_busy": is_busy,
+        "busy_type": PROCESS_TYPE if is_busy else None
+    }
+    return render(request, "dashboard/mp4.html", context)
+
+
+@csrf_exempt
+def upload_mp4(request):
+    """Handles MP4 file upload."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    
+    if "file" not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+    
+    uploaded_file = request.FILES["file"]
+    
+    # Validate file type
+    if not uploaded_file.name.lower().endswith(".mp4"):
+        return JsonResponse({"error": "Only MP4 files are allowed"}, status=400)
+    
+    # Validate file size (max 500MB)
+    if uploaded_file.size > 500 * 1024 * 1024:
+        return JsonResponse({"error": "File too large (max 500MB)"}, status=400)
+    
+    # Ensure uploads directory exists
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+    
+    # Save file with timestamp to avoid conflicts
+    filename = f"upload_{int(time.time())}_{uploaded_file.name}"
+    filepath = os.path.join(UPLOADS_DIR, filename)
+    
+    try:
+        with open(filepath, "wb") as f:
+            for chunk in uploaded_file.chunks():
+                f.write(chunk)
+        
+        return JsonResponse({
+            "status": "uploaded",
+            "filename": filename,
+            "filepath": filepath,
+            "size": uploaded_file.size
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def start_mp4(request):
+    """Starts MP4 processing with main.py."""
+    global CV_PROCESS, PROCESS_TYPE, MP4_PROGRESS
+    
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    
+    # Global lock check
+    if CV_PROCESS is not None and CV_PROCESS.poll() is None:
+        return JsonResponse({"error": f"System busy ({PROCESS_TYPE})"}, status=409)
+    
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    
+    filepath = data.get("filepath")
+    section = data.get("section")
+    session_name = data.get("session", "").strip()
+    export_enabled = data.get("export", True)
+    
+    if not filepath or not os.path.exists(filepath):
+        return JsonResponse({"error": "Video file not found"}, status=400)
+    
+    if not section:
+        return JsonResponse({"error": "Section is required"}, status=400)
+    
+    # Clear old progress file
+    try:
+        if os.path.exists(MP4_PROGRESS_PATH):
+            os.remove(MP4_PROGRESS_PATH)
+    except Exception:
+        pass
+    
+    # Reset progress
+    MP4_PROGRESS = {"frame": 0, "total": 0, "status": "starting"}
+    
+    # Construct command
+    cmd = [
+        os.path.join(PROJECT_ROOT, "venv/bin/python3"),
+        os.path.join(PROJECT_ROOT, "main.py"),
+        "--section", section,
+        "--source", filepath
+    ]
+    
+    if export_enabled:
+        cmd.append("--export")
+    
+    if session_name:
+        cmd.extend(["--session", session_name])
+    else:
+        session_name = f"MP4_{int(time.time())}"
+        cmd.extend(["--session", session_name])
+    
+    try:
+        CV_PROCESS = subprocess.Popen(cmd, cwd=PROJECT_ROOT)
+        PROCESS_TYPE = "mp4"
+        return JsonResponse({
+            "status": "started",
+            "pid": CV_PROCESS.pid,
+            "session": session_name
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def stop_mp4(request):
+    """Stops MP4 processing."""
+    global CV_PROCESS, PROCESS_TYPE, MP4_PROGRESS
+    
+    # Write stop command
+    try:
+        with open(COMMAND_PATH, "w") as f:
+            json.dump({"stop": True}, f)
+    except Exception:
+        pass
+    
+    if CV_PROCESS is None:
+        MP4_PROGRESS["status"] = "stopped"
+        return JsonResponse({"status": "stopped"})
+    
+    # Wait for graceful exit
+    for _ in range(10):
+        if CV_PROCESS.poll() is not None:
+            break
+        time.sleep(0.5)
+    
+    if CV_PROCESS.poll() is None:
+        CV_PROCESS.terminate()
+    
+    CV_PROCESS = None
+    PROCESS_TYPE = None
+    MP4_PROGRESS["status"] = "stopped"
+    return JsonResponse({"status": "stopped"})
+
+
+def mp4_progress(request):
+    """Returns MP4 processing progress."""
+    global MP4_PROGRESS
+    
+    # Check if process is still running
+    is_running = CV_PROCESS is not None and CV_PROCESS.poll() is None
+    
+    # Read progress from file if it exists
+    if os.path.exists(MP4_PROGRESS_PATH):
+        try:
+            with open(MP4_PROGRESS_PATH, "r") as f:
+                file_progress = json.load(f)
+                MP4_PROGRESS["frame"] = file_progress.get("frame", 0)
+                MP4_PROGRESS["total"] = file_progress.get("total", 0)
+        except Exception:
+            pass
+    
+    # Update status based on process state
+    if not is_running and MP4_PROGRESS["status"] not in ("stopped", "done", "idle"):
+        # Process finished
+        if MP4_PROGRESS["frame"] > 0 and MP4_PROGRESS["frame"] >= MP4_PROGRESS["total"] - 10:
+            MP4_PROGRESS["status"] = "done"
+        elif MP4_PROGRESS["frame"] > 0:
+            MP4_PROGRESS["status"] = "done"  # Assume done if process exited cleanly
+        else:
+            MP4_PROGRESS["status"] = "idle"
+    elif is_running:
+        MP4_PROGRESS["status"] = "processing"
+    
+    # Calculate percentage
+    percentage = 0
+    if MP4_PROGRESS["total"] > 0:
+        percentage = min(100, int((MP4_PROGRESS["frame"] / MP4_PROGRESS["total"]) * 100))
+    
+    return JsonResponse({
+        "frame": MP4_PROGRESS["frame"],
+        "total": MP4_PROGRESS["total"],
+        "percentage": percentage,
+        "status": MP4_PROGRESS["status"],
+        "is_running": is_running
+    })
+
+
+def mp4_results(request):
+    """Returns attendance results for the completed MP4 session."""
+    conn = None
+    results = {
+        "session_name": "",
+        "present": 0,
+        "total": 0,
+        "attendees": [],
+        "unknowns_count": 0
+    }
+    
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        cursor = conn.cursor()
+        
+        # Get most recent closed session (likely the MP4 session)
+        cursor.execute("""
+            SELECT id, session_name FROM sessions 
+            WHERE status='CLOSED' 
+            ORDER BY id DESC LIMIT 1
+        """)
+        session = cursor.fetchone()
+        
+        if not session:
+            return JsonResponse(results)
+        
+        session_id, session_name = session
+        results["session_name"] = session_name or ""
+        
+        # Count present
+        cursor.execute(
+            "SELECT COUNT(*) FROM session_attendance WHERE session_id=? AND status='Present'",
+            (session_id,)
+        )
+        results["present"] = cursor.fetchone()[0] or 0
+        
+        # Count total
+        cursor.execute(
+            "SELECT COUNT(*) FROM session_attendance WHERE session_id=?",
+            (session_id,)
+        )
+        results["total"] = cursor.fetchone()[0] or 0
+        
+        # Get attendees
+        cursor.execute("""
+            SELECT students.name, students.student_id, session_attendance.last_seen
+            FROM session_attendance
+            JOIN students ON session_attendance.student_id = students.student_id
+            WHERE session_attendance.session_id=? AND session_attendance.status='Present'
+            ORDER BY students.name
+        """, (session_id,))
+        
+        for row in cursor.fetchall():
+            name, student_id, last_seen = row
+            results["attendees"].append({
+                "name": str(name) if name else "",
+                "id": str(student_id) if student_id else "",
+                "last_seen": str(last_seen) if last_seen else ""
+            })
+        
+        # Count unknowns
+        cursor.execute(
+            "SELECT COUNT(*) FROM unknown_detections WHERE session_id=?",
+            (session_id,)
+        )
+        results["unknowns_count"] = cursor.fetchone()[0] or 0
+        
+    except Exception as e:
+        results["error"] = str(e)
+    finally:
+        if conn:
+            conn.close()
+    
+    return JsonResponse(results)

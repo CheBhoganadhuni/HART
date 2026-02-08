@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MP4 Processing | MOT Attendance</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --text-primary: #ffffff;
+            --text-secondary: #8b8b9e;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #2a2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Hamburger Menu */
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .topbar h1 {
+            font-size: 20px;
+        }
+
+        .hamburger {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 8px;
+        }
+
+        .nav-menu {
+            display: none;
+            position: absolute;
+            top: 60px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            min-width: 200px;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .nav-menu.open {
+            display: block;
+        }
+
+        .nav-menu a {
+            display: block;
+            padding: 14px 20px;
+            color: var(--text-primary);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-menu a:last-child {
+            border-bottom: none;
+        }
+
+        .nav-menu a:hover {
+            background: var(--bg-secondary);
+        }
+
+        .nav-menu a.active {
+            color: var(--accent);
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 24px;
+            padding: 24px;
+            height: calc(100vh - 60px);
+        }
+
+        /* Video Container */
+        .video-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-section img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .video-placeholder {
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .video-placeholder .icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        /* Loader Overlay */
+        .loader-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 10, 15, 0.95);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .loader-overlay.active {
+            display: flex;
+        }
+
+        .loader-ring {
+            width: 80px;
+            height: 80px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader-countdown {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 16px;
+            color: var(--accent);
+        }
+
+        .loader-text {
+            margin-top: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+        }
+
+        .card h3 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Upload Zone */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .upload-zone.uploaded {
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.1);
+        }
+
+        .upload-zone input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .upload-text {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .file-info {
+            margin-top: 8px;
+            color: var(--success);
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .form-group select,
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .checkbox-group input {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            width: 100%;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        /* Progress */
+        .progress-bar-bg {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            height: 20px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            border-radius: 8px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* Stats */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-box {
+            background: var(--bg-secondary);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-box .label {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
+        /* Attendee List */
+        .attendee-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .attendee-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .attendee-item:last-child {
+            border-bottom: none;
+        }
+
+        .attendee-name {
+            font-weight: 500;
+        }
+
+        .attendee-id {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* Busy Banner */
+        .busy-banner {
+            background: var(--danger);
+            color: white;
+            padding: 12px 24px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        /* Hidden states */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Top Bar with Hamburger -->
+    <div class="topbar">
+        <h1>🎬 MP4 Video Processing</h1>
+        <button class="hamburger" onclick="toggleMenu()">☰</button>
+        <div class="nav-menu" id="navMenu">
+            <a href="/">📹 Live Dashboard</a>
+            <a href="/process-mp4" class="active">🎬 Process MP4</a>
+        </div>
+    </div>
+
+    {% if is_busy %}
+    <div class="busy-banner">
+        ⚠️ System busy ({{ busy_type }}). Wait for current task to complete or <a href="/"
+            style="color: white; text-decoration: underline;">go back</a>.
+    </div>
+    {% endif %}
+
+    <div class="main-layout">
+        <!-- Video Section -->
+        <div class="video-section" id="videoSection">
+            <div class="video-placeholder" id="videoPlaceholder">
+                <div class="icon">🎬</div>
+                <p>Upload an MP4 and start processing<br>to see video preview here</p>
+            </div>
+            <img id="videoFeed" src="" style="display: none;" alt="Processing video">
+
+            <!-- Loader Overlay -->
+            <div class="loader-overlay" id="loaderOverlay">
+                <div class="loader-ring"></div>
+                <div class="loader-countdown" id="loaderCountdown">19</div>
+                <p class="loader-text" id="loaderText">Initializing AI models...</p>
+                <button class="btn btn-danger" style="width: auto; margin-top: 24px;" onclick="cancelStartup()">✕
+                    Cancel</button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- Upload Card (Phase 1) -->
+            <div class="card" id="uploadCard">
+                <h3>📁 Upload Video</h3>
+                <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" accept=".mp4" onchange="handleFileSelect(event)">
+                    <div class="upload-icon">📤</div>
+                    <p class="upload-text">Click or drag MP4 file (max 500MB)</p>
+                    <p class="file-info" id="fileInfo"></p>
+                </div>
+                <div style="margin-top: 16px;">
+                    <div class="form-group">
+                        <label>Section</label>
+                        <select id="sectionSelect" required>
+                            <option value="">Select section...</option>
+                            {% for section in sections %}
+                            <option value="{{ section }}">{{ section }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Session Name (optional)</label>
+                        <input type="text" id="sessionName" placeholder="e.g., Lecture_01">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="exportToggle" checked>
+                            Export annotated video
+                        </label>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="startBtn" onclick="startProcessing()" disabled>
+                    🚀 Start Processing
+                </button>
+            </div>
+
+            <!-- Processing Card (Phase 2) -->
+            <div class="card hidden" id="processingCard">
+                <h3>⏳ Processing</h3>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar" id="progressBar" style="width: 0%">0%</div>
+                </div>
+                <p class="progress-text" id="progressText">Frame 0 / 0</p>
+                <button class="btn btn-danger" onclick="stopProcessing()">⏹ Stop Processing</button>
+            </div>
+
+            <!-- Results Card (Phase 3) -->
+            <div class="card hidden" id="resultsCard">
+                <h3>✅ Complete</h3>
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <div class="value" id="resultPresent">0</div>
+                        <div class="label">Present</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value" id="resultTotal">0</div>
+                        <div class="label">Total</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value" id="resultUnknowns">0</div>
+                        <div class="label">Unknowns</div>
+                    </div>
+                </div>
+                <h4 style="margin-bottom: 8px; font-size: 14px;">Attendees</h4>
+                <div class="attendee-list" id="attendeeList">
+                    <p style="color: var(--text-secondary); text-align: center; padding: 16px;">No attendees</p>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 16px;">
+                    <button class="btn btn-secondary" onclick="resetPage()">Process Another</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let uploadedFilePath = null;
+        let progressInterval = null;
+        let startupTimeout = null;
+        let isProcessing = false;  // Track if actually processing
+        let countdownInterval = null;
+
+        // Toggle hamburger menu
+        function toggleMenu() {
+            document.getElementById('navMenu').classList.toggle('open');
+        }
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.hamburger') && !e.target.closest('.nav-menu')) {
+                document.getElementById('navMenu').classList.remove('open');
+            }
+        });
+
+        // Check system status on load
+        async function checkSystemStatus() {
+            try {
+                const res = await fetch('/mp4-progress');
+                const data = await res.json();
+                if (data.is_running) {
+                    // Already processing - show video and progress
+                    showProcessingView();
+                    startProgressPolling();
+                }
+            } catch (e) { }
+        }
+        checkSystemStatus();
+
+        // Drag & Drop
+        const uploadZone = document.getElementById('uploadZone');
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+        uploadZone.addEventListener('dragleave', () => { uploadZone.classList.remove('dragover'); });
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFileUpload(e.dataTransfer.files[0]);
+        });
+
+        function handleFileSelect(event) {
+            if (event.target.files.length > 0) handleFileUpload(event.target.files[0]);
+        }
+
+        async function handleFileUpload(file) {
+            if (!file.name.toLowerCase().endsWith('.mp4')) { alert('Please select an MP4 file'); return; }
+            if (file.size > 500 * 1024 * 1024) { alert('File too large. Maximum size is 500MB'); return; }
+
+            const fileInfo = document.getElementById('fileInfo');
+            fileInfo.textContent = `Uploading: ${file.name}...`;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/upload-mp4', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.error) { alert('Upload error: ' + data.error); fileInfo.textContent = ''; return; }
+
+                uploadedFilePath = data.filepath;
+                fileInfo.textContent = `✓ ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                uploadZone.classList.add('uploaded');
+                updateStartButton();
+            } catch (e) { alert('Upload failed: ' + e.message); fileInfo.textContent = ''; }
+        }
+
+        function updateStartButton() {
+            const section = document.getElementById('sectionSelect').value;
+            document.getElementById('startBtn').disabled = !uploadedFilePath || !section;
+        }
+        document.getElementById('sectionSelect').addEventListener('change', updateStartButton);
+
+        async function startProcessing() {
+            const section = document.getElementById('sectionSelect').value;
+            const sessionName = document.getElementById('sessionName').value.trim();
+            const exportEnabled = document.getElementById('exportToggle').checked;
+
+            if (!uploadedFilePath || !section) { alert('Please upload a file and select a section'); return; }
+
+            // Show loader
+            document.getElementById('loaderOverlay').classList.add('active');
+            startCountdown();
+
+            try {
+                const res = await fetch('/start-mp4', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filepath: uploadedFilePath, section, session: sessionName, export: exportEnabled })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    hideLoader();
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                // Wait for models to load (19 seconds countdown) then show video
+                isProcessing = true;
+                startupTimeout = setTimeout(() => {
+                    hideLoader();
+                    showProcessingView();
+                    startProgressPolling();
+                }, 19000);
+
+            } catch (e) {
+                hideLoader();
+                alert('Failed to start processing: ' + e.message);
+            }
+        }
+
+        function startCountdown() {
+            let count = 19;
+            const loaderMessages = [
+                "Initializing AI models...", "Loading YOLO tracker...",
+                "Applying GPU providers...", "Loading InsightFace...",
+                "Preparing video stream...", "Almost ready..."
+            ];
+            let msgIdx = 0;
+
+            document.getElementById('loaderCountdown').textContent = count;
+
+            countdownInterval = setInterval(() => {
+                count--;
+                document.getElementById('loaderCountdown').textContent = count;
+                if (count % 3 === 0) {
+                    msgIdx = (msgIdx + 1) % loaderMessages.length;
+                    document.getElementById('loaderText').textContent = loaderMessages[msgIdx];
+                }
+                if (count <= 0) clearInterval(countdownInterval);
+            }, 1000);
+        }
+
+        function hideLoader() {
+            document.getElementById('loaderOverlay').classList.remove('active');
+            if (countdownInterval) clearInterval(countdownInterval);
+        }
+
+        function cancelStartup() {
+            if (startupTimeout) clearTimeout(startupTimeout);
+            hideLoader();
+            isProcessing = false;
+            fetch('/stop-mp4', { method: 'POST' });
+        }
+
+        function showProcessingView() {
+            document.getElementById('uploadCard').classList.add('hidden');
+            document.getElementById('processingCard').classList.remove('hidden');
+            document.getElementById('videoPlaceholder').style.display = 'none';
+
+            // Start video feed
+            const videoFeed = document.getElementById('videoFeed');
+            videoFeed.style.display = 'block';
+            videoFeed.src = '/video_feed?' + Date.now();
+        }
+
+        function startProgressPolling() {
+            progressInterval = setInterval(async () => {
+                try {
+                    const res = await fetch('/mp4-progress');
+                    const data = await res.json();
+
+                    const bar = document.getElementById('progressBar');
+                    const text = document.getElementById('progressText');
+
+                    bar.style.width = data.percentage + '%';
+                    bar.textContent = data.percentage + '%';
+                    text.textContent = `Frame ${data.frame} / ${data.total}`;
+
+                    if (data.status === 'done') {
+                        clearInterval(progressInterval);
+                        isProcessing = false;
+                        showResults();
+                    } else if (data.status === 'stopped' && !data.is_running) {
+                        clearInterval(progressInterval);
+                        isProcessing = false;
+                        // Check if it was a real stop or completion
+                        if (data.frame > 0 && data.frame >= data.total - 10) {
+                            showResults();
+                        }
+                    }
+                } catch (e) { console.error('Progress poll error:', e); }
+            }, 1000);
+        }
+
+        async function stopProcessing() {
+            if (!confirm('Stop processing?')) return;
+            try { await fetch('/stop-mp4', { method: 'POST' }); } catch (e) { }
+            if (progressInterval) clearInterval(progressInterval);
+            isProcessing = false;
+            resetPage();
+        }
+
+        async function showResults() {
+            document.getElementById('processingCard').classList.add('hidden');
+            document.getElementById('resultsCard').classList.remove('hidden');
+            document.getElementById('videoFeed').style.display = 'none';
+            document.getElementById('videoPlaceholder').style.display = 'block';
+            document.getElementById('videoPlaceholder').innerHTML = '<div class="icon">✅</div><p>Processing complete!</p>';
+
+            try {
+                const res = await fetch('/mp4-results');
+                const data = await res.json();
+
+                document.getElementById('resultPresent').textContent = data.present;
+                document.getElementById('resultTotal').textContent = data.total;
+                document.getElementById('resultUnknowns').textContent = data.unknowns_count;
+
+                const attendeeList = document.getElementById('attendeeList');
+                if (data.attendees && data.attendees.length > 0) {
+                    attendeeList.innerHTML = data.attendees.map(a => `
+                        <div class="attendee-item">
+                            <span class="attendee-name">${a.name}</span>
+                            <span class="attendee-id">${a.id}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    attendeeList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 16px;">No attendees</p>';
+                }
+            } catch (e) { console.error('Results fetch error:', e); }
+        }
+
+        function resetPage() {
+            uploadedFilePath = null;
+            isProcessing = false;
+            document.getElementById('fileInfo').textContent = '';
+            document.getElementById('uploadZone').classList.remove('uploaded');
+            document.getElementById('fileInput').value = '';
+            document.getElementById('sessionName').value = '';
+            document.getElementById('startBtn').disabled = true;
+
+            document.getElementById('uploadCard').classList.remove('hidden');
+            document.getElementById('processingCard').classList.add('hidden');
+            document.getElementById('resultsCard').classList.add('hidden');
+
+            document.getElementById('videoFeed').style.display = 'none';
+            document.getElementById('videoPlaceholder').style.display = 'block';
+            document.getElementById('videoPlaceholder').innerHTML = '<div class="icon">🎬</div><p>Upload an MP4 and start processing<br>to see video preview here</p>';
+
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressBar').textContent = '0%';
+        }
+
+        // Cleanup ONLY when actually processing
+        window.addEventListener('beforeunload', (e) => {
+            if (isProcessing) {
+                navigator.sendBeacon('/stop-mp4', '');
+            }
+        });
+    </script>
+</body>
+
+</html>

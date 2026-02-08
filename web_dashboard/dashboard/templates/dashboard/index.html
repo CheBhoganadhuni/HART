@@ -510,6 +510,23 @@
         <p>This attendance dashboard requires a larger screen. Please use a tablet or laptop to access this service.</p>
     </div>
 
+    <!-- Hamburger Menu Bar -->
+    <div class="menu-bar"
+        style="display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--card-bg); border-bottom: 1px solid var(--border);">
+        <h1 style="font-size: 18px; font-weight: 600;">📹 MOT Attendance</h1>
+        <button class="hamburger-btn" onclick="toggleNavMenu()"
+            style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: 8px;">☰</button>
+        <div class="nav-dropdown" id="navDropdown"
+            style="display: none; position: absolute; top: 50px; right: 24px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; min-width: 200px; z-index: 1000; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+            <a href="/"
+                style="display: block; padding: 14px 20px; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border);">📹
+                Live Dashboard</a>
+            <a href="/process-mp4"
+                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none;">🎬
+                Process MP4</a>
+        </div>
+    </div>
+
     <!-- Stats Bar -->
     <div class="stats-bar">
         <div class="stat-card">
@@ -667,12 +684,38 @@
 
     <script>
         // ============================================
+        // NAVIGATION MENU
+        // ============================================
+        function toggleNavMenu() {
+            const dropdown = document.getElementById('navDropdown');
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+        }
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.hamburger-btn') && !e.target.closest('.nav-dropdown')) {
+                document.getElementById('navDropdown').style.display = 'none';
+            }
+        });
+
+        // Check if MP4 processing is running on page load
+        async function checkSystemStatus() {
+            try {
+                const res = await fetch('/mp4-progress');
+                const data = await res.json();
+                if (data.is_running && data.status === 'processing') {
+                    alert('⚠️ MP4 processing is currently active. Please wait for it to complete or go to MP4 page to stop it.');
+                }
+            } catch (e) { }
+        }
+        checkSystemStatus();
+
+        // ============================================
         // STATE
         // ============================================
         let pollInterval = null;
         let isPaused = false;
         let isLoading = false;
         let unknownsData = [];
+        let userInitiatedStop = false;  // Prevent error modal on intentional stops
 
         const videoEl = document.getElementById('videoFeed');
         const offlineMsg = document.getElementById('offlineMsg');
@@ -709,6 +752,7 @@
             const cancelBtn = document.getElementById('cancelStartBtn');
             cancelBtn.disabled = true;
             cancelBtn.textContent = 'Cancelling...';
+            userInitiatedStop = true;  // Prevent error modal
 
             if (startupTimeout) {
                 clearTimeout(startupTimeout);
@@ -923,6 +967,7 @@
 
         async function stopSession() {
             if (!confirm('Stop this session?')) return;
+            userInitiatedStop = true;  // Prevent error modal
             try {
                 await fetch('/stop_session', { method: 'POST' });
                 stopPolling();
@@ -958,6 +1003,11 @@
                 if (!data.is_running && !isLoading) {
                     stopPolling();
                     showOffline();
+                    // Show error modal only for unexpected stops
+                    if (!userInitiatedStop) {
+                        openErrorModal();
+                    }
+                    userInitiatedStop = false;  // Reset for next session
                     return;
                 }
 

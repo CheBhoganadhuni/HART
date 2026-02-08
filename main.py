@@ -542,6 +542,14 @@ def main():
 
             # IPC: Write Stream
             write_live_stream(frame)
+            
+            # IPC: Write MP4 progress (every 30 frames to reduce I/O)
+            if is_mp4 and frame_idx % 30 == 0:
+                try:
+                    with open("data/mp4_progress.json", "w") as pf:
+                        json.dump({"frame": frame_idx, "total": stream.total_frames}, pf)
+                except Exception:
+                    pass
 
             # cv2.imshow("Attendance Pro", frame) # Disabled for web-only mode
             
