@@ -10,7 +10,10 @@ class DBManager:
         self.init_db()
 
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        """Returns a connection with WAL mode and timeout for concurrent access."""
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def init_db(self):
         conn = self.get_connection()

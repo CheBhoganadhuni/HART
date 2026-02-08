@@ -6,6 +6,7 @@ import queue
 import time
 import numpy as np
 import pickle
+import json
 from ultralytics import YOLO
 from insightface.app import FaceAnalysis
 from core.db_manager import DBManager
@@ -202,6 +203,61 @@ def calc_iou(box1, box2):
     area1 = (box1[2]-box1[0])*(box1[3]-box1[1])
     area2 = (box2[2]-box2[0])*(box2[3]-box2[1])
     return inter / (area1 + area2 - inter + 1e-6)
+
+# IPC Paths
+COMMAND_PATH = "data/commands.json"
+STREAM_PATH = "data/live_stream.jpg"
+
+def poll_commands():
+    """Checks for external commands from the web dashboard.
+    
+    IMPORTANT: Commands are single-shot. After reading, the file is cleared
+    to prevent the same command from being processed every loop iteration.
+    """
+    if not os.path.exists(COMMAND_PATH): return None
+    try:
+        with open(COMMAND_PATH, "r") as f:
+            cmd = json.load(f)
+        
+        # Clear the command file after reading (prevents re-processing)
+        try: os.remove(COMMAND_PATH)
+        except: pass
+        
+        if cmd.get("stop"):
+            return "stop"
+        if cmd.get("pause"):
+            return "pause"
+        if cmd.get("resume"):
+            return "resume"
+    except Exception:
+        pass
+    return None
+
+def write_live_stream(frame):
+    """Writes the current frame to a file for MJPEG streaming.
+    
+    Uses cv2.imencode to encode JPEG in memory, then atomic file write.
+    This avoids the ".jpg.tmp" extension issue with cv2.imwrite.
+    """
+    try:
+        # Ensure data directory exists
+        stream_dir = os.path.dirname(STREAM_PATH)
+        if stream_dir and not os.path.exists(stream_dir):
+            os.makedirs(stream_dir, exist_ok=True)
+        
+        # Encode frame to JPEG in memory
+        success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not success:
+            return
+        
+        # Write bytes atomically: temp file then rename
+        temp_path = STREAM_PATH + "_tmp"  # "data/live_stream.jpg_tmp"
+        with open(temp_path, 'wb') as f:
+            f.write(buffer.tobytes())
+        os.replace(temp_path, STREAM_PATH)
+    except Exception as e:
+        # Silently skip - don't spam logs every frame
+        pass
 
 def list_available_sections():
     sections = []
@@ -462,6 +518,18 @@ def main():
             prog = f" | {int((frame_idx/stream.total_frames)*100)}%" if is_mp4 else ""
             status_text = f"FPS: {fps:.1f} | Live: {len(current_ids)} | Time: {elapsed}{prog}"
             
+            # IPC: Check for commands
+            cmd = poll_commands()
+            if cmd == "stop":
+                print("[System] Stop command received.")
+                break
+            elif cmd == "pause":
+                is_paused = True
+                print("[System] Paused by web dashboard.")
+            elif cmd == "resume":
+                is_paused = False
+                print("[System] Resumed by web dashboard.")
+
             if is_paused:
                 status_text += " | PAUSED"
                 cv2.putText(frame, "SYSTEM PAUSED (Press 'p' to Resume)", (frame.shape[1]//2 - 200, frame.shape[0]//2), 0, 1.0, (0, 0, 255), 3)
@@ -472,7 +540,10 @@ def main():
             if video_writer:
                 video_writer.write(frame)
 
-            cv2.imshow("Attendance Pro", frame)
+            # IPC: Write Stream
+            write_live_stream(frame)
+
+            # cv2.imshow("Attendance Pro", frame) # Disabled for web-only mode
             
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'): break
