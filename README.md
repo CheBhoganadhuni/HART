@@ -1,4 +1,6 @@
-# Current System Analysis & Phase 2 Readiness
+# Current System Analysis & Phase 2c Readiness
+
+NOTE: This Only Showcases Phase 1 System Architecture, For Entire Journey Check Journey Folder For MD Files.
 
 ## 1. Project Overview
 The `MOT-Attendance` project is a Python-based real-time biometric attendance system utilizing computer vision. It currently operates as a set of CLI/GUI scripts running locally.

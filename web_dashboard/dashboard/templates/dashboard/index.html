@@ -515,7 +515,7 @@
         style="display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--card-bg); border-bottom: 1px solid var(--border);">
         <h1 style="font-size: 18px; font-weight: 600;">📹 MOT Attendance</h1>
         <button class="hamburger-btn" onclick="toggleNavMenu()"
-            style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: 8px;">☰</button>
+            style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: 8px;{% if hide_hamburger %} display: none;{% endif %}">☰</button>
         <div class="nav-dropdown" id="navDropdown"
             style="display: none; position: absolute; top: 50px; right: 24px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; min-width: 200px; z-index: 1000; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
             <a href="/"
@@ -711,6 +711,13 @@
         // ============================================
         // STATE
         // ============================================
+        const systemBusy = {% if is_busy %}true{% else %} false{% endif %};  // Server flag when MP4 running
+
+        // If system is busy (MP4 running), don't run any session logic
+        if (systemBusy) {
+            console.log('System busy - disabling all session controls');
+        }
+
         let pollInterval = null;
         let isPaused = false;
         let isLoading = false;
@@ -741,6 +748,8 @@
 
         // Handle tab/browser close during startup or active session
         window.addEventListener('beforeunload', function (e) {
+            // Don't interfere if system is busy with MP4
+            if (systemBusy) return;
             if (isLoading || (pollInterval !== null)) {
                 // Fire and forget - stop the session
                 navigator.sendBeacon('/stop_session', '');
@@ -929,12 +938,27 @@
         // SESSION CONTROL
         // ============================================
         async function startSession() {
+            // Don't allow starting webcam session when MP4 is running
+            if (systemBusy) return;
+
             const section = document.getElementById('sectionSelect').value;
             const session = document.getElementById('sessionInput').value;
             const cache = document.getElementById('cacheSelect').value;
             const exportEnabled = document.getElementById('exportCheck').checked;
 
             if (!section) { alert('Please select a section'); return; }
+
+            // Pre-check: verify system is not busy before starting
+            try {
+                const checkRes = await fetch('/check-busy');
+                const checkData = await checkRes.json();
+                if (checkData.busy) {
+                    alert(`⚠️ System is busy! A ${checkData.type} session is already running from another tab.`);
+                    return;
+                }
+            } catch (e) {
+                console.error('Pre-check failed:', e);
+            }
 
             closeStartModal();
             showLoader();
@@ -948,6 +972,14 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ section, session, source: '0', cache: cache || null, export: exportEnabled })
                 });
+
+                // Check for system busy (409) - another session started from another tab
+                if (res.status === 409) {
+                    alert('⚠️ System is busy! Another session was started from a different tab. Reloading page...');
+                    window.location.reload();
+                    return;
+                }
+
                 const data = await res.json();
 
                 if (data.status === 'started' || data.status === 'running') {
@@ -969,6 +1001,8 @@
         }
 
         async function stopSession() {
+            // Don't interfere with MP4 session
+            if (systemBusy) return;
             if (!confirm('Stop this session?')) return;
             userInitiatedStop = true;  // Prevent error modal
             try {

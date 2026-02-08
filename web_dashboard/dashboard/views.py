@@ -47,15 +47,18 @@ def index(request):
         cache_files.sort(key=lambda x: x[1], reverse=True)
         caches = [f[0] for f in cache_files]
     
-    # Check if MP4 processing is running
-    is_mp4_running = PROCESS_TYPE == "mp4" and CV_PROCESS is not None and CV_PROCESS.poll() is None
+    # Check if any processing is running
+    process_running = CV_PROCESS is not None and CV_PROCESS.poll() is None
+    is_mp4_running = PROCESS_TYPE == "mp4" and process_running
+    is_webcam_running = PROCESS_TYPE == "webcam" and process_running
     
     context = {
         "sections": sorted(sections),
         "caches": caches,  # All cache files, sorted by date
-        "is_running": CV_PROCESS is not None and CV_PROCESS.poll() is None,
-        "is_busy": is_mp4_running,
-        "busy_type": "MP4" if is_mp4_running else None
+        "is_running": process_running,
+        "is_busy": process_running,  # Block for ANY session (webcam OR MP4)
+        "busy_type": "webcam" if is_webcam_running else ("MP4" if is_mp4_running else None),
+        "hide_hamburger": process_running  # Hide hamburger if ANY session is active
     }
     return render(request, "dashboard/index.html", context)
 
@@ -108,6 +111,15 @@ def video_feed(request):
         gen_frames(),
         content_type='multipart/x-mixed-replace; boundary=frame'
     )
+
+
+def check_busy(request):
+    """Returns current system busy state - for pre-start checks."""
+    process_running = CV_PROCESS is not None and CV_PROCESS.poll() is None
+    return JsonResponse({
+        "busy": process_running,
+        "type": PROCESS_TYPE if process_running else None
+    })
 
 
 @csrf_exempt
@@ -525,6 +537,32 @@ def stop_mp4(request):
     return JsonResponse({"status": "stopped"})
 
 
+@csrf_exempt
+def pause_mp4(request):
+    """Toggles pause/resume for MP4 processing."""
+    global MP4_PROGRESS
+    
+    if CV_PROCESS is None or CV_PROCESS.poll() is not None:
+        return JsonResponse({"status": "not_running"})
+    
+    # Toggle pause/resume
+    is_paused = MP4_PROGRESS.get("paused", False)
+    
+    try:
+        with open(COMMAND_PATH, "w") as f:
+            if is_paused:
+                json.dump({"resume": True}, f)
+            else:
+                json.dump({"pause": True}, f)
+    except Exception:
+        pass
+    
+    # Update local state
+    MP4_PROGRESS["paused"] = not is_paused
+    
+    return JsonResponse({"status": "resumed" if is_paused else "paused", "paused": not is_paused})
+
+
 def mp4_progress(request):
     """Returns MP4 processing progress."""
     global MP4_PROGRESS
@@ -599,10 +637,10 @@ def mp4_results(request):
         session_id, session_name = session
         results["session_name"] = session_name or ""
         
-        # Check for export file
+        # Check for export file - return actual folder path for user reference
         export_path = os.path.join(PROJECT_ROOT, f"data/exports/{session_name}.mp4")
         if os.path.exists(export_path):
-            results["export_path"] = f"/media/exports/{session_name}.mp4"
+            results["export_path"] = f"data/exports/{session_name}.mp4"
         
         # Count present
         cursor.execute(

@@ -28,11 +28,13 @@ urlpatterns = [
     path('stop_session', views.stop_session, name='stop_session'),
     path('control_session', views.control_session, name='control_session'),
     path('get_stats', views.get_stats, name='get_stats'),
+    path('check-busy', views.check_busy, name='check_busy'),
     # MP4 Processing
     path('process-mp4', views.mp4_page, name='mp4_page'),
     path('upload-mp4', views.upload_mp4, name='upload_mp4'),
     path('start-mp4', views.start_mp4, name='start_mp4'),
     path('stop-mp4', views.stop_mp4, name='stop_mp4'),
+    path('pause-mp4', views.pause_mp4, name='pause_mp4'),
     path('mp4-progress', views.mp4_progress, name='mp4_progress'),
     path('mp4-results', views.mp4_results, name='mp4_results'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
