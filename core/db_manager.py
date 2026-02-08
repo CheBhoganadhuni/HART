@@ -205,8 +205,10 @@ class DBManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT INTO unknown_detections (session_id, session_name, track_id, image_path) VALUES (?, ?, ?, ?)", 
-                           (session_id, session_name, track_id, image_path))
+            # Use local timestamp instead of SQLite's UTC default
+            local_timestamp = datetime.now().isoformat()
+            cursor.execute("INSERT INTO unknown_detections (session_id, session_name, track_id, image_path, timestamp) VALUES (?, ?, ?, ?, ?)", 
+                           (session_id, session_name, track_id, image_path, local_timestamp))
             conn.commit()
         except Exception as e:
             print(f"[DB] Error logging unknown detection: {e}")

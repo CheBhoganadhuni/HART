@@ -535,7 +535,7 @@ def main():
                 cv2.putText(frame, "SYSTEM PAUSED (Press 'p' to Resume)", (frame.shape[1]//2 - 200, frame.shape[0]//2), 0, 1.0, (0, 0, 255), 3)
 
             cv2.putText(frame, status_text, (20, 30), 0, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, "'p': Pause | 'q': Quit", (20, frame.shape[0] - 20), 0, 0.7, (200, 200, 200), 2)
+            # Controls text removed - now handled in web UI
             
             if video_writer:
                 video_writer.write(frame)
@@ -583,6 +583,12 @@ def main():
         try:
              present_students = [name for tid, name in tracked_identities.items() if name]
              db.global_heartbeat_sync(session_id, present_students)
+        except: pass
+        
+        # Clean up live stream file to avoid stale frames on next session
+        try:
+            if os.path.exists(STREAM_PATH):
+                os.remove(STREAM_PATH)
         except: pass
 
 

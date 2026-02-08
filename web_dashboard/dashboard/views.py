@@ -30,16 +30,22 @@ def index(request):
             if f.endswith(".pkl"):
                 sections.append(f.replace(".pkl", ""))
     
-    # Get available cache files
+    # Get available cache files sorted by modification time (newest first)
     caches = []
     if os.path.exists(CACHE_DIR):
-        for f in sorted(os.listdir(CACHE_DIR), reverse=True):
+        cache_files = []
+        for f in os.listdir(CACHE_DIR):
             if f.startswith("cache_") and f.endswith(".pkl"):
-                caches.append(f)
+                full_path = os.path.join(CACHE_DIR, f)
+                mtime = os.path.getmtime(full_path)
+                cache_files.append((f, mtime))
+        # Sort by modification time descending (newest first)
+        cache_files.sort(key=lambda x: x[1], reverse=True)
+        caches = [f[0] for f in cache_files]
     
     context = {
         "sections": sorted(sections),
-        "caches": caches[:10],  # Limit to 10 most recent
+        "caches": caches,  # All cache files, sorted by date
         "is_running": CV_PROCESS is not None and CV_PROCESS.poll() is None
     }
     return render(request, "dashboard/index.html", context)
@@ -166,15 +172,18 @@ def stop_session(request):
     except Exception:
         pass
     
+    # Early return if no process running
+    if CV_PROCESS is None:
+        return JsonResponse({"status": "stopped"})
+    
     # Wait for process to exit gracefully
-    if CV_PROCESS:
-        for _ in range(10):  # 5 seconds total
-            if CV_PROCESS.poll() is not None:
-                break
-            time.sleep(0.5)
-        
-        if CV_PROCESS.poll() is None:
-            CV_PROCESS.terminate()
+    for _ in range(10):  # 5 seconds total
+        if CV_PROCESS.poll() is not None:
+            break
+        time.sleep(0.5)
+    
+    if CV_PROCESS.poll() is None:
+        CV_PROCESS.terminate()
     
     CV_PROCESS = None
     return JsonResponse({"status": "stopped"})
@@ -300,19 +309,23 @@ def get_stats(request):
                 except (ValueError, TypeError):
                     track_id = 0
             
-            # Convert image path to relative URL (relative to MEDIA_ROOT which is data/)
+            # Convert image path to URL (MEDIA_ROOT is data/, so strip 'data/' prefix)
             rel_path = ""
             if image_path:
                 try:
-                    # MEDIA_ROOT is PROJECT_ROOT/data, so make path relative to that
-                    data_dir = os.path.join(PROJECT_ROOT, "data")
-                    if image_path.startswith(str(data_dir)):
-                        rel_path = "/media/" + os.path.relpath(image_path, data_dir)
-                    elif "unknown_faces" in image_path:
-                        # Fallback: just use the last part after unknown_faces/
-                        rel_path = "/media/unknown_faces/" + os.path.basename(image_path)
+                    # Handle relative paths like "data/unknown_faces/Session_xxx/..."
+                    if image_path.startswith("data/"):
+                        rel_path = "/media/" + image_path[5:]  # Strip "data/" prefix
+                    # Handle absolute paths
+                    elif os.path.isabs(image_path):
+                        data_dir = os.path.join(PROJECT_ROOT, "data")
+                        if image_path.startswith(str(data_dir)):
+                            rel_path = "/media/" + os.path.relpath(image_path, data_dir)
+                        else:
+                            rel_path = "/media/" + os.path.basename(image_path)
                     else:
-                        rel_path = "/media/" + os.path.basename(image_path)
+                        # Fallback: use path as-is with /media/ prefix
+                        rel_path = "/media/" + image_path
                 except Exception:
                     rel_path = ""
             

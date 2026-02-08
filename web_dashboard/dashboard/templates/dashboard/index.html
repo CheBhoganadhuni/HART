@@ -40,6 +40,50 @@
             gap: 20px;
         }
 
+        /* Mobile Warning Overlay */
+        .mobile-warning {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--bg-color);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .mobile-warning h2 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+
+        .mobile-warning p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            max-width: 400px;
+        }
+
+        .mobile-warning .icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .mobile-warning {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .main-content {
+                display: none !important;
+            }
+
+            .stats-bar {
+                display: none !important;
+            }
+        }
+
         /* Stats Bar */
         .stats-bar {
             display: grid;
@@ -109,20 +153,43 @@
             margin-bottom: 8px;
         }
 
-        /* Loader */
+        /* Loader with countdown */
         .loader-container {
             text-align: center;
             display: none;
         }
 
-        .loader {
-            width: 60px;
-            height: 60px;
+        .loader-wrapper {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 20px;
+        }
+
+        .loader-ring {
+            width: 100%;
+            height: 100%;
             border: 4px solid var(--border);
             border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
+        }
+
+        .loader-countdown {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .loader-text {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            transition: opacity 0.3s;
+            margin-top: 10px;
         }
 
         @keyframes spin {
@@ -145,7 +212,7 @@
             backdrop-filter: blur(10px);
         }
 
-        .video-container:hover .controls-overlay {
+        .video-container:hover .controls-overlay.active {
             display: flex;
         }
 
@@ -230,44 +297,36 @@
             font-weight: 600;
         }
 
+        /* Clickable badge */
         .badge {
             background: rgba(245, 158, 11, 0.15);
             color: var(--warning);
-            padding: 4px 10px;
+            padding: 6px 14px;
             border-radius: 20px;
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
         }
 
-        /* Unknown Detections Grid */
-        .unknowns-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
+        .badge:hover {
+            background: rgba(245, 158, 11, 0.3);
+            transform: scale(1.05);
         }
 
-        .unknown-item {
-            position: relative;
-            aspect-ratio: 1;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid var(--border);
+        .badge.empty {
+            background: var(--border);
+            color: var(--text-secondary);
+            cursor: default;
         }
 
-        .unknown-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        .badge.empty:hover {
+            transform: none;
         }
 
-        .unknown-item .track-id {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-            padding: 4px;
-            font-size: 0.65rem;
+        .unknowns-hint {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
             text-align: center;
         }
 
@@ -334,7 +393,9 @@
             border-radius: 16px;
             padding: 28px;
             width: 100%;
-            max-width: 420px;
+            max-width: 480px;
+            max-height: 80vh;
+            overflow-y: auto;
             animation: modalIn 0.2s ease-out;
         }
 
@@ -400,10 +461,54 @@
         .modal-actions button {
             flex: 1;
         }
+
+        /* Unknowns Modal List */
+        .unknown-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .unknown-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .unknown-item img {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 6px;
+        }
+
+        .unknown-item-info {
+            flex: 1;
+        }
+
+        .unknown-item-info .track-id {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .unknown-item-info .time {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 
 <body>
+
+    <!-- Mobile Warning Overlay -->
+    <div class="mobile-warning">
+        <div class="icon">💻</div>
+        <h2>Desktop View Required</h2>
+        <p>This attendance dashboard requires a larger screen. Please use a tablet or laptop to access this service.</p>
+    </div>
 
     <!-- Stats Bar -->
     <div class="stats-bar">
@@ -411,9 +516,14 @@
             <div class="stat-label">Session Status</div>
             <div class="stat-value" id="statusValue" style="color: var(--text-secondary);">Offline</div>
             <div class="stat-sub" id="sessionName">-</div>
-            <button class="btn-primary" id="startBtn" onclick="openModal()" style="margin-top: 12px; width: 100%;">
+            <button class="btn-primary" id="startBtn" onclick="openStartModal()" style="margin-top: 12px; width: 100%;">
                 🚀 Start Session
             </button>
+            <div id="sessionControls" style="display: none; margin-top: 12px; gap: 8px;">
+                <button class="btn-secondary btn-sm" id="pauseBtn" onclick="togglePause()" style="flex: 1;">⏸
+                    Pause</button>
+                <button class="btn-danger btn-sm" onclick="stopSession()" style="flex: 1;">⏹ Stop</button>
+            </div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Present</div>
@@ -434,7 +544,7 @@
 
         <!-- Video Feed -->
         <div class="video-container">
-            <img id="videoFeed" src="" alt="Live Feed">
+            <img id="videoFeed" src="" alt="Live Feed" onerror="handleVideoError()">
 
             <div class="video-placeholder" id="offlineMsg">
                 <h3>📹 System Offline</h3>
@@ -442,13 +552,13 @@
             </div>
 
             <div class="loader-container" id="loaderMsg">
-                <div class="loader"></div>
-                <p>Initializing Camera...</p>
-            </div>
-
-            <div class="controls-overlay" id="videoControls">
-                <button class="btn-secondary btn-sm" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
-                <button class="btn-danger btn-sm" onclick="stopSession()">⏹ Stop</button>
+                <div class="loader-wrapper">
+                    <div class="loader-ring"></div>
+                    <div class="loader-countdown" id="loaderCountdown">19</div>
+                </div>
+                <p class="loader-text" id="loaderText">Initializing system...</p>
+                <button class="btn-danger btn-sm" id="cancelStartBtn" onclick="cancelStartup()"
+                    style="margin-top: 20px;">✕ Cancel</button>
             </div>
         </div>
 
@@ -459,11 +569,9 @@
             <div class="panel">
                 <div class="panel-header">
                     <h3>Unknown Detections</h3>
-                    <span class="badge" id="unknownCount">0</span>
+                    <span class="badge empty" id="unknownBadge" onclick="openUnknownsModal()">0</span>
                 </div>
-                <div class="unknowns-grid" id="unknownsGrid">
-                    <div class="empty-state" id="noUnknowns">No detections yet</div>
-                </div>
+                <p class="unknowns-hint" id="unknownsHint">No unknown faces detected</p>
             </div>
 
             <!-- Attendees Table -->
@@ -488,7 +596,7 @@
     </div>
 
     <!-- Start Session Modal -->
-    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal-overlay" id="startModal" onclick="closeStartModal(event)">
         <div class="modal" onclick="event.stopPropagation()">
             <h2>🎬 Start New Session</h2>
 
@@ -524,8 +632,35 @@
             </div>
 
             <div class="modal-actions">
-                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-secondary" onclick="closeStartModal()">Cancel</button>
                 <button class="btn-primary" onclick="startSession()">Start Session</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unknowns Modal -->
+    <div class="modal-overlay" id="unknownsModal" onclick="closeUnknownsModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h2>👤 Unknown Detections</h2>
+            <div class="unknown-list" id="unknownsList">
+                <div class="empty-state">No unknown detections</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeUnknownsModal()"
+                    style="flex: none; width: 100%;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal for Broken Pipe/Connection Issues -->
+    <div class="modal-overlay" id="errorModal" onclick="closeErrorModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h2 style="color: var(--danger);">⚠️ Connection Error</h2>
+            <p style="color: var(--text-secondary); margin: 16px 0;">The video stream was interrupted. This may be due
+                to a connection issue or the recognition engine stopped unexpectedly.</p>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeErrorModal()" style="flex: 1;">Dismiss</button>
+                <button class="btn-primary" onclick="window.location.reload()" style="flex: 1;">🔄 Reload Page</button>
             </div>
         </div>
     </div>
@@ -537,25 +672,113 @@
         let pollInterval = null;
         let isPaused = false;
         let isLoading = false;
+        let unknownsData = [];
 
         const videoEl = document.getElementById('videoFeed');
         const offlineMsg = document.getElementById('offlineMsg');
         const loaderMsg = document.getElementById('loaderMsg');
-        const videoControls = document.getElementById('videoControls');
+        const loaderText = document.getElementById('loaderText');
+
         const startBtn = document.getElementById('startBtn');
         const pauseBtn = document.getElementById('pauseBtn');
 
-        // ============================================
-        // MODAL
-        // ============================================
-        function openModal() {
-            document.getElementById('modalOverlay').classList.add('active');
+        // Loader messages for rotation (every 3 seconds)
+        const loaderMessages = [
+            "Initializing system...",
+            "Loading AI models...",
+            "Applying GPU providers...",
+            "Processing CLI arguments...",
+            "Accessing camera...",
+            "Starting recognition engine..."
+        ];
+        let loaderMsgIndex = 0;
+        let loaderMsgInterval = null;
+        let countdownInterval = null;
+        let startupTimeout = null;  // Track startup timeout for cancellation
+
+        // Handle tab/browser close during startup or active session
+        window.addEventListener('beforeunload', function (e) {
+            if (isLoading || (pollInterval !== null)) {
+                // Fire and forget - stop the session
+                navigator.sendBeacon('/stop_session', '');
+            }
+        });
+
+        // Cancel startup during loading phase
+        async function cancelStartup() {
+            const cancelBtn = document.getElementById('cancelStartBtn');
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = 'Cancelling...';
+
+            if (startupTimeout) {
+                clearTimeout(startupTimeout);
+                startupTimeout = null;
+            }
+            try {
+                await fetch('/stop_session', { method: 'POST' });
+            } catch (e) { }
+            showOffline();
         }
 
-        function closeModal(e) {
-            if (!e || e.target === document.getElementById('modalOverlay')) {
-                document.getElementById('modalOverlay').classList.remove('active');
+        // ============================================
+        // ERROR HANDLING
+        // ============================================
+        function openErrorModal() {
+            document.getElementById('errorModal').classList.add('active');
+        }
+        function closeErrorModal(e) {
+            if (!e || e.target === document.getElementById('errorModal')) {
+                document.getElementById('errorModal').classList.remove('active');
             }
+        }
+
+        // Handle video stream errors (broken pipe, connection lost)
+        function handleVideoError() {
+            // Only show error if we were actively streaming (not during loading/offline)
+            if (pollInterval !== null && !isLoading) {
+                stopPolling();
+                showOffline();
+                openErrorModal();
+            }
+        }
+
+        // ============================================
+        // MODALS
+        // ============================================
+        function openStartModal() {
+            document.getElementById('startModal').classList.add('active');
+        }
+        function closeStartModal(e) {
+            if (!e || e.target === document.getElementById('startModal')) {
+                document.getElementById('startModal').classList.remove('active');
+            }
+        }
+        function openUnknownsModal() {
+            if (unknownsData.length === 0) return;
+            renderUnknownsList();
+            document.getElementById('unknownsModal').classList.add('active');
+        }
+        function closeUnknownsModal(e) {
+            if (!e || e.target === document.getElementById('unknownsModal')) {
+                document.getElementById('unknownsModal').classList.remove('active');
+            }
+        }
+
+        function renderUnknownsList() {
+            const list = document.getElementById('unknownsList');
+            if (unknownsData.length === 0) {
+                list.innerHTML = '<div class="empty-state">No unknown detections</div>';
+                return;
+            }
+            list.innerHTML = unknownsData.map(u => `
+                <div class="unknown-item">
+                    <img src="${u.image || ''}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 60 60%22><rect fill=%22%23333%22 width=%2260%22 height=%2260%22/><text x=%2230%22 y=%2235%22 fill=%22%23666%22 text-anchor=%22middle%22>?</text></svg>'" alt="Unknown">
+                    <div class="unknown-item-info">
+                        <div class="track-id">Track ID: ${u.track_id || '?'}</div>
+                        <div class="time">${u.time ? new Date(u.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unknown time'}</div>
+                    </div>
+                </div>
+            `).join('');
         }
 
         // ============================================
@@ -568,28 +791,65 @@
             loaderMsg.style.display = 'block';
             startBtn.disabled = true;
             startBtn.textContent = '⏳ Starting...';
+
+            // Start countdown from 19
+            let countdown = 19;
+            const countdownEl = document.getElementById('loaderCountdown');
+            countdownEl.textContent = countdown;
+
+            countdownInterval = setInterval(() => {
+                countdown--;
+                countdownEl.textContent = countdown;
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+            }, 1000);
+
+            // Rotate loader messages every 3 seconds
+            loaderMsgIndex = 0;
+            loaderText.textContent = loaderMessages[0];
+            loaderMsgInterval = setInterval(() => {
+                loaderMsgIndex = (loaderMsgIndex + 1) % loaderMessages.length;
+                loaderText.style.opacity = 0;
+                setTimeout(() => {
+                    loaderText.textContent = loaderMessages[loaderMsgIndex];
+                    loaderText.style.opacity = 1;
+                }, 150);
+            }, 3000);
         }
 
         function showVideo() {
             isLoading = false;
+            if (loaderMsgInterval) { clearInterval(loaderMsgInterval); loaderMsgInterval = null; }
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
             offlineMsg.style.display = 'none';
             loaderMsg.style.display = 'none';
             videoEl.style.display = 'block';
             videoEl.src = '/video_feed?' + Date.now();
+
             startBtn.style.display = 'none';
+            document.getElementById('sessionControls').style.display = 'flex';
             document.getElementById('statusValue').innerHTML = "Live <span style='color:var(--success)'>●</span>";
             document.getElementById('statusValue').style.color = 'white';
         }
 
         function showOffline() {
             isLoading = false;
+            if (loaderMsgInterval) { clearInterval(loaderMsgInterval); loaderMsgInterval = null; }
             videoEl.style.display = 'none';
             videoEl.src = '';
             loaderMsg.style.display = 'none';
             offlineMsg.style.display = 'block';
+
             startBtn.style.display = 'block';
             startBtn.disabled = false;
             startBtn.textContent = '🚀 Start Session';
+            document.getElementById('sessionControls').style.display = 'none';
+            // Reset cancel button for next startup
+            const cancelBtn = document.getElementById('cancelStartBtn');
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = '✕ Cancel';
             document.getElementById('statusValue').textContent = 'Offline';
             document.getElementById('statusValue').style.color = 'var(--text-secondary)';
             document.getElementById('sessionName').textContent = '-';
@@ -598,10 +858,27 @@
             document.getElementById('rateValue').textContent = '0%';
             isPaused = false;
             updatePauseBtn();
+            updateUnknownsBadge([]);
         }
 
         function updatePauseBtn() {
             pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+        }
+
+        function updateUnknownsBadge(unknowns) {
+            unknownsData = unknowns || [];
+            const badge = document.getElementById('unknownBadge');
+            const hint = document.getElementById('unknownsHint');
+
+            if (unknownsData.length > 0) {
+                badge.textContent = unknownsData.length;
+                badge.classList.remove('empty');
+                hint.textContent = 'Click badge to view details';
+            } else {
+                badge.textContent = '0';
+                badge.classList.add('empty');
+                hint.textContent = 'No unknown faces detected';
+            }
         }
 
         // ============================================
@@ -613,40 +890,33 @@
             const cache = document.getElementById('cacheSelect').value;
             const exportEnabled = document.getElementById('exportCheck').checked;
 
-            if (!section) {
-                alert('Please select a section');
-                return;
-            }
+            if (!section) { alert('Please select a section'); return; }
 
-            closeModal();
+            closeStartModal();
             showLoader();
 
             try {
                 const res = await fetch('/start_session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        section,
-                        session,
-                        source: '0',
-                        cache: cache || null,
-                        export: exportEnabled
-                    })
+                    body: JSON.stringify({ section, session, source: '0', cache: cache || null, export: exportEnabled })
                 });
                 const data = await res.json();
 
                 if (data.status === 'started' || data.status === 'running') {
-                    // Wait 8 seconds for camera to initialize, then show video
-                    setTimeout(() => {
+                    // Fixed 19 second delay matches countdown - stored for cancellation
+                    startupTimeout = setTimeout(() => {
+                        startupTimeout = null;
                         showVideo();
                         startPolling();
-                    }, 8000);
+                    }, 19000);
                 } else if (data.error) {
                     alert('Error: ' + data.error);
                     showOffline();
                 }
             } catch (e) {
                 console.error('Start error:', e);
+                alert('Failed to start session. Please try again.');
                 showOffline();
             }
         }
@@ -705,29 +975,15 @@
                             <tr>
                                 <td><strong>${a.name || ''}</strong></td>
                                 <td style="color:var(--text-secondary)">${a.id || ''}</td>
-                                <td>${a.last_seen ? new Date(a.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                                <td>${a.last_seen ? new Date(a.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'}</td>
                             </tr>
                         `).join('');
                     } else {
                         tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No attendees yet</td></tr>';
                     }
 
-                    // Unknowns
-                    const unknowns = data.unknowns || [];
-                    document.getElementById('unknownCount').textContent = unknowns.length;
-                    const grid = document.getElementById('unknownsGrid');
-
-                    if (unknowns.length > 0) {
-                        grid.innerHTML = unknowns.map(u => `
-                            <div class="unknown-item">
-                                <img src="${u.image || ''}" 
-                                     onerror="this.parentElement.style.display='none'" alt="Unknown">
-                                <div class="track-id">ID: ${u.track_id || '?'}</div>
-                            </div>
-                        `).join('');
-                    } else {
-                        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No detections yet</div>';
-                    }
+                    // Update unknowns badge (don't re-render modal each time)
+                    updateUnknownsBadge(data.unknowns);
                 }
             } catch (e) {
                 console.error('Stats error:', e);
@@ -736,7 +992,7 @@
 
         function startPolling() {
             if (!pollInterval) {
-                pollInterval = setInterval(fetchStats, 2000);  // 2 seconds
+                pollInterval = setInterval(fetchStats, 2500);  // 2.5 seconds
                 fetchStats();
             }
         }
