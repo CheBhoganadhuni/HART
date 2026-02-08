@@ -420,9 +420,15 @@
     </div>
 
     {% if is_busy %}
-    <div class="busy-banner">
-        ⚠️ System busy ({{ busy_type }}). Wait for current task to complete or <a href="/"
-            style="color: white; text-decoration: underline;">go back</a>.
+    <!-- Full Page Busy Overlay -->
+    <div class="busy-overlay"
+        style="position: fixed; inset: 0; background: rgba(10, 10, 15, 0.98); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px;">
+        <div style="font-size: 64px; margin-bottom: 24px;">⚠️</div>
+        <h2 style="font-size: 28px; margin-bottom: 16px; color: var(--danger);">System Busy</h2>
+        <p style="font-size: 16px; color: var(--text-secondary); margin-bottom: 8px;">A {{ busy_type }} session is
+            currently active.</p>
+        <p style="font-size: 14px; color: var(--text-secondary);">Please wait for it to complete or stop it from the
+            original tab.</p>
     </div>
     {% endif %}
 
@@ -509,10 +515,27 @@
                         <div class="label">Unknowns</div>
                     </div>
                 </div>
+
+                <!-- Export Link -->
+                <div id="exportSection" class="hidden" style="margin-bottom: 16px;">
+                    <a id="exportLink" href="" target="_blank"
+                        style="display: flex; align-items: center; gap: 8px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; text-decoration: none; color: var(--accent);">
+                        🎬 View Exported Video
+                    </a>
+                </div>
+
                 <h4 style="margin-bottom: 8px; font-size: 14px;">Attendees</h4>
                 <div class="attendee-list" id="attendeeList">
                     <p style="color: var(--text-secondary); text-align: center; padding: 16px;">No attendees</p>
                 </div>
+
+                <!-- Unknowns Gallery -->
+                <div id="unknownsSection" class="hidden" style="margin-top: 16px;">
+                    <h4 style="margin-bottom: 8px; font-size: 14px; color: var(--warning);">Unknown Faces</h4>
+                    <div id="unknownsGallery"
+                        style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 150px; overflow-y: auto;"></div>
+                </div>
+
                 <div style="display: flex; gap: 8px; margin-top: 16px;">
                     <button class="btn btn-secondary" onclick="resetPage()">Process Another</button>
                 </div>
@@ -671,6 +694,9 @@
             document.getElementById('processingCard').classList.remove('hidden');
             document.getElementById('videoPlaceholder').style.display = 'none';
 
+            // Hide hamburger during processing
+            document.querySelector('.hamburger').style.display = 'none';
+
             // Start video feed
             const videoFeed = document.getElementById('videoFeed');
             videoFeed.style.display = 'block';
@@ -721,6 +747,9 @@
             document.getElementById('videoPlaceholder').style.display = 'block';
             document.getElementById('videoPlaceholder').innerHTML = '<div class="icon">✅</div><p>Processing complete!</p>';
 
+            // Show hamburger again
+            document.querySelector('.hamburger').style.display = 'block';
+
             try {
                 const res = await fetch('/mp4-results');
                 const data = await res.json();
@@ -729,6 +758,13 @@
                 document.getElementById('resultTotal').textContent = data.total;
                 document.getElementById('resultUnknowns').textContent = data.unknowns_count;
 
+                // Export link
+                if (data.export_path) {
+                    document.getElementById('exportSection').classList.remove('hidden');
+                    document.getElementById('exportLink').href = data.export_path;
+                }
+
+                // Attendees
                 const attendeeList = document.getElementById('attendeeList');
                 if (data.attendees && data.attendees.length > 0) {
                     attendeeList.innerHTML = data.attendees.map(a => `
@@ -739,6 +775,18 @@
                     `).join('');
                 } else {
                     attendeeList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 16px;">No attendees</p>';
+                }
+
+                // Unknowns gallery
+                if (data.unknowns && data.unknowns.length > 0) {
+                    document.getElementById('unknownsSection').classList.remove('hidden');
+                    const gallery = document.getElementById('unknownsGallery');
+                    gallery.innerHTML = data.unknowns.map(u => `
+                        <div style="position: relative;">
+                            <img src="${u.image}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 2px solid var(--warning);" onerror="this.style.display='none'">
+                            <span style="position: absolute; bottom: 2px; right: 2px; background: var(--warning); color: black; font-size: 10px; padding: 2px 4px; border-radius: 4px;">#${u.track_id}</span>
+                        </div>
+                    `).join('');
                 }
             } catch (e) { console.error('Results fetch error:', e); }
         }

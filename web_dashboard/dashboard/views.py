@@ -47,10 +47,15 @@ def index(request):
         cache_files.sort(key=lambda x: x[1], reverse=True)
         caches = [f[0] for f in cache_files]
     
+    # Check if MP4 processing is running
+    is_mp4_running = PROCESS_TYPE == "mp4" and CV_PROCESS is not None and CV_PROCESS.poll() is None
+    
     context = {
         "sections": sorted(sections),
         "caches": caches,  # All cache files, sorted by date
-        "is_running": CV_PROCESS is not None and CV_PROCESS.poll() is None
+        "is_running": CV_PROCESS is not None and CV_PROCESS.poll() is None,
+        "is_busy": is_mp4_running,
+        "busy_type": "MP4" if is_mp4_running else None
     }
     return render(request, "dashboard/index.html", context)
 
@@ -571,7 +576,9 @@ def mp4_results(request):
         "present": 0,
         "total": 0,
         "attendees": [],
-        "unknowns_count": 0
+        "unknowns_count": 0,
+        "unknowns": [],
+        "export_path": ""
     }
     
     try:
@@ -591,6 +598,11 @@ def mp4_results(request):
         
         session_id, session_name = session
         results["session_name"] = session_name or ""
+        
+        # Check for export file
+        export_path = os.path.join(PROJECT_ROOT, f"data/exports/{session_name}.mp4")
+        if os.path.exists(export_path):
+            results["export_path"] = f"/media/exports/{session_name}.mp4"
         
         # Count present
         cursor.execute(
@@ -623,12 +635,53 @@ def mp4_results(request):
                 "last_seen": str(last_seen) if last_seen else ""
             })
         
-        # Count unknowns
-        cursor.execute(
-            "SELECT COUNT(*) FROM unknown_detections WHERE session_id=?",
-            (session_id,)
-        )
-        results["unknowns_count"] = cursor.fetchone()[0] or 0
+        # Get unknowns with images
+        cursor.execute("""
+            SELECT track_id, timestamp, image_path 
+            FROM unknown_detections 
+            WHERE session_id=? 
+            ORDER BY id DESC LIMIT 20
+        """, (session_id,))
+        
+        for row in cursor.fetchall():
+            track_id, timestamp, image_path = row
+            
+            # Handle track_id
+            if isinstance(track_id, bytes):
+                try:
+                    track_id = int.from_bytes(track_id, "little")
+                except Exception:
+                    track_id = 0
+            else:
+                try:
+                    track_id = int(track_id)
+                except (ValueError, TypeError):
+                    track_id = 0
+            
+            # Convert image path to URL
+            rel_path = ""
+            if image_path:
+                try:
+                    if image_path.startswith("data/"):
+                        rel_path = "/media/" + image_path[5:]
+                    elif os.path.isabs(image_path):
+                        data_dir = os.path.join(PROJECT_ROOT, "data")
+                        if image_path.startswith(str(data_dir)):
+                            rel_path = "/media/" + os.path.relpath(image_path, data_dir)
+                        else:
+                            rel_path = "/media/" + os.path.basename(image_path)
+                    else:
+                        rel_path = "/media/" + image_path
+                except Exception:
+                    rel_path = ""
+            
+            results["unknowns"].append({
+                "track_id": track_id,
+                "time": str(timestamp) if timestamp else "",
+                "image": rel_path
+            })
+        
+        results["unknowns_count"] = len(results["unknowns"])
         
     except Exception as e:
         results["error"] = str(e)

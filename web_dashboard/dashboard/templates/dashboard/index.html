@@ -527,6 +527,18 @@
         </div>
     </div>
 
+    {% if is_busy %}
+    <!-- Full Page Busy Overlay -->
+    <div class="busy-overlay"
+        style="position: fixed; inset: 0; background: rgba(10, 10, 15, 0.98); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px;">
+        <div style="font-size: 64px; margin-bottom: 24px;">⚠️</div>
+        <h2 style="font-size: 28px; margin-bottom: 16px; color: #ef4444;">System Busy</h2>
+        <p style="font-size: 16px; color: #7a7f8a; margin-bottom: 8px;">A {{ busy_type }} session is currently active.
+        </p>
+        <p style="font-size: 14px; color: #7a7f8a;">Please wait for it to complete or stop it from the original tab.</p>
+    </div>
+    {% endif %}
+
     <!-- Stats Bar -->
     <div class="stats-bar">
         <div class="stat-card">
@@ -695,18 +707,6 @@
                 document.getElementById('navDropdown').style.display = 'none';
             }
         });
-
-        // Check if MP4 processing is running on page load
-        async function checkSystemStatus() {
-            try {
-                const res = await fetch('/mp4-progress');
-                const data = await res.json();
-                if (data.is_running && data.status === 'processing') {
-                    alert('⚠️ MP4 processing is currently active. Please wait for it to complete or go to MP4 page to stop it.');
-                }
-            } catch (e) { }
-        }
-        checkSystemStatus();
 
         // ============================================
         // STATE
@@ -939,6 +939,9 @@
             closeStartModal();
             showLoader();
 
+            // Hide hamburger during session
+            document.querySelector('.hamburger-btn').style.display = 'none';
+
             try {
                 const res = await fetch('/start_session', {
                     method: 'POST',
@@ -972,6 +975,8 @@
                 await fetch('/stop_session', { method: 'POST' });
                 stopPolling();
                 showOffline();
+                // Show hamburger again
+                document.querySelector('.hamburger-btn').style.display = 'block';
             } catch (e) {
                 console.error('Stop error:', e);
             }
