@@ -1,270 +1,773 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
 
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <meta http-equiv="Content-Style-Type" content="text/css">
-    <title></title>
-    <meta name="Generator" content="Cocoa HTML Writer">
-    <meta name="CocoaVersion" content="2575.6">
-    <style type="text/css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOT Attendance Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0a0f;
+            --card-bg: #12141a;
+            --card-bg-hover: #1a1d24;
+            --text-primary: #f0f0f0;
+            --text-secondary: #7a7f8a;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --border: #2a2d35;
+            --glass: rgba(18, 20, 26, 0.8);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            background-color: #0d0e11
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
 
-        p.p1 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 12.0px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0
+        /* Stats Bar */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
         }
 
-        p.p2 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 10.2px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
         }
 
-        p.p3 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 18.0px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
         }
 
-        p.p4 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 9.0px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
         }
 
-        p.p5 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 18.0px 'Helvetica Neue';
-            color: #36af3f;
-            -webkit-text-stroke: #36af3f
+        .stat-sub {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
         }
 
-        p.p6 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 18.0px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
         }
 
-        p.p8 {
-            margin: 0.0px 0.0px 12.0px 0.0px;
+        /* Video Container */
+        .video-container {
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+        }
+
+        #videoFeed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        .video-placeholder {
             text-align: center;
-            font: 12.0px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c
+            color: var(--text-secondary);
         }
 
-        p.p9 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
+        .video-placeholder h3 {
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+
+        /* Loader */
+        .loader-container {
             text-align: center;
-            font: 11.0px '.SF NS';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0;
-            background-color: #12151a
+            display: none;
         }
 
-        p.p10 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Video Controls */
+        .controls-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 12px;
+            background: var(--glass);
+            padding: 12px 20px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
+        }
+
+        .video-container:hover .controls-overlay {
+            display: flex;
+        }
+
+        /* Buttons */
+        button {
+            font-family: inherit;
+            font-weight: 600;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--card-bg-hover);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
+        .btn-danger:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .panel-header h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .badge {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Unknown Detections Grid */
+        .unknowns-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .unknown-item {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .unknown-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .unknown-item .track-id {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+            padding: 4px;
+            font-size: 0.65rem;
             text-align: center;
-            font: 11.0px '.SF NS';
-            color: #f33839;
-            -webkit-text-stroke: #f33839;
-            background-color: #f33839;
-            background-color: rgba(243, 56, 57, 0.1)
         }
 
-        p.p11 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 9.6px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c;
-            background-color: #12151a
-        }
-
-        p.p12 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 11.0px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0;
-            background-color: #0c0e12
-        }
-
-        p.p13 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 11.0px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0;
-            background-color: #0c0e12;
-            min-height: 13.0px
-        }
-
-        p.p14 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 9.6px 'Helvetica Neue';
-            color: #78818c;
-            -webkit-text-stroke: #78818c
-        }
-
-        p.p15 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
+        .empty-state {
             text-align: center;
-            font: 11.0px '.SF NS';
-            color: #ffffff;
-            -webkit-text-stroke: #ffffff;
-            background-color: #4892ff
+            padding: 30px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
         }
 
-        p.p16 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 9.6px 'Helvetica Neue';
-            color: #c6881b;
-            -webkit-text-stroke: #c6881b
+        /* Attendees Table */
+        .table-container {
+            flex: 1;
+            overflow-y: auto;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
         }
 
-        p.p17 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 10.8px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
         }
 
-        p.p18 {
-            margin: 0.0px 0.0px 0.0px 0.0px;
-            font: 10.8px 'Helvetica Neue';
-            color: #e0e8f0;
-            -webkit-text-stroke: #e0e8f0;
-            min-height: 12.0px
+        th,
+        td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
         }
 
-        span.s1 {
-            font-kerning: none;
-            background-color: #0d0e11
+        th {
+            background: rgba(255, 255, 255, 0.02);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-secondary);
         }
 
-        span.s2 {
-            font-kerning: none;
-            background-color: #12151a
+        tr:last-child td {
+            border-bottom: none;
         }
 
-        span.s3 {
-            font-kerning: none;
-            background-color: #000000
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
         }
 
-        span.s4 {
-            font: 11.0px 'STIX Two Math';
-            font-kerning: none
+        .modal-overlay.active {
+            display: flex;
         }
 
-        span.s5 {
-            font-kerning: none
+        .modal {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            width: 100%;
+            max-width: 420px;
+            animation: modalIn 0.2s ease-out;
         }
 
-        span.s6 {
-            font: 11.0px Times;
-            font-kerning: none
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
         }
 
-        span.s7 {
-            font: 11.0px '.Apple Color Emoji UI';
-            font-kerning: none
+        .modal h2 {
+            font-size: 1.2rem;
+            margin-bottom: 24px;
         }
 
-        table.t1 {
-            border-collapse: collapse
+        .form-group {
+            margin-bottom: 18px;
         }
 
-        td.td1 {
-            width: 71.7px;
-            background-color: #ffffff;
-            background-color: rgba(255, 255, 255, 0.02);
-            border-style: solid;
-            border-width: 0.0px 0.0px 1.0px 0.0px;
-            border-color: #e0e8f0 #e0e8f0 #24292e #e0e8f0;
-            padding: 12.0px 12.0px 12.0px 12.0px
+        .form-group label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
         }
 
-        td.td2 {
-            width: 36.6px;
-            background-color: #ffffff;
-            background-color: rgba(255, 255, 255, 0.02);
-            border-style: solid;
-            border-width: 0.0px 0.0px 1.0px 0.0px;
-            border-color: #e0e8f0 #e0e8f0 #24292e #e0e8f0;
-            padding: 12.0px 12.0px 12.0px 12.0px
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.9rem;
         }
 
-        td.td3 {
-            width: 64.4px;
-            background-color: #ffffff;
-            background-color: rgba(255, 255, 255, 0.02);
-            border-style: solid;
-            border-width: 0.0px 0.0px 1.0px 0.0px;
-            border-color: #e0e8f0 #e0e8f0 #24292e #e0e8f0;
-            padding: 12.0px 12.0px 12.0px 12.0px
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .modal-actions button {
+            flex: 1;
         }
     </style>
 </head>
 
 <body>
-    <p class="p1"><span class="s1">{% load static %}</span></p>
-    <p class="p2"><span class="s2">Session Status</span></p>
-    <p class="p3"><span class="s2">Offline</span></p>
-    <p class="p4"><span class="s2">-</span></p>
-    <p class="p2"><span class="s2">Present</span></p>
-    <p class="p5"><span class="s2">0</span></p>
-    <p class="p2"><span class="s2">Total Registered</span></p>
-    <p class="p6"><span class="s2">0</span></p>
-    <p class="p2"><span class="s2">Attendance Rate</span></p>
-    <p class="p6"><span class="s2">0%</span></p>
-    <h3
-        style="margin: 0.0px 0.0px 14.0px 0.0px; text-align: center; font: 14.0px 'Helvetica Neue'; color: #78818c; -webkit-text-stroke: #78818c">
-        <span class="s3">System Offline</span></h3>
-    <p class="p8"><span class="s3">Start a session to view live feed</span></p>
-    <p class="p9"><span class="s4">⏸</span><span class="s5"><b> Pause</b></span></p>
-    <p class="p10"><span class="s4">⏹</span><span class="s5"><b> Stop Session</b></span></p>
-    <h3
-        style="margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px 'Helvetica Neue'; color: #e0e8f0; -webkit-text-stroke: #e0e8f0">
-        <span class="s2">Start New Session</span></h3>
-    <p class="p11"><span class="s5">Section (Required)</span></p>
-    <p class="p12"><span class="s5"><span class="Apple-converted-space">                        </span>{% for s in
-            sections %}</span></p>
-    <p class="p12"><span class="s5"><span class="Apple-converted-space">                        </span></span><span
-            class="s6">{{ s }}</span></p>
-    <p class="p12"><span class="s5"><span class="Apple-converted-space">                        </span>{% endfor
-            %}</span></p>
-    <p class="p13"><span class="s5"><span class="Apple-converted-space">                    </span></span></p>
-    <p class="p14"><span class="s2">Session Name (Optional)</span></p>
-    <p class="p13"><span class="s5"></span><br></p>
-    <p class="p14"><span class="s2">Video Source</span></p>
-    <p class="p12"><span class="s5">0</span></p>
-    <p class="p15"><span class="s7">🚀</span><span class="s5"><b> Start System</b></span></p>
-    <p class="p1"><span class="s2">Unknown Detections</span></p>
-    <p class="p16"><span class="s2">0</span></p>
-    <table cellspacing="0" cellpadding="0" class="t1">
-        <tbody>
-            <tr>
-                <td valign="middle" class="td1">
-                    <p class="p17"><span class="s1">Name</span></p>
-                </td>
-                <td valign="middle" class="td2">
-                    <p class="p17"><span class="s1">ID</span></p>
-                </td>
-                <td valign="middle" class="td3">
-                    <p class="p17"><span class="s1">Time</span></p>
-                </td>
-            </tr>
-        </tbody>
-    </table>
-    <p class="p18"><span class="s5"></span><br></p>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+        <div class="stat-card">
+            <div class="stat-label">Session Status</div>
+            <div class="stat-value" id="statusValue" style="color: var(--text-secondary);">Offline</div>
+            <div class="stat-sub" id="sessionName">-</div>
+            <button class="btn-primary" id="startBtn" onclick="openModal()" style="margin-top: 12px; width: 100%;">
+                🚀 Start Session
+            </button>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Present</div>
+            <div class="stat-value" style="color: var(--success);" id="presentCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Registered</div>
+            <div class="stat-value" id="totalCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Attendance Rate</div>
+            <div class="stat-value" id="rateValue">0%</div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-grid">
+
+        <!-- Video Feed -->
+        <div class="video-container">
+            <img id="videoFeed" src="" alt="Live Feed">
+
+            <div class="video-placeholder" id="offlineMsg">
+                <h3>📹 System Offline</h3>
+                <p>Start a session to view live feed</p>
+            </div>
+
+            <div class="loader-container" id="loaderMsg">
+                <div class="loader"></div>
+                <p>Initializing Camera...</p>
+            </div>
+
+            <div class="controls-overlay" id="videoControls">
+                <button class="btn-secondary btn-sm" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+                <button class="btn-danger btn-sm" onclick="stopSession()">⏹ Stop</button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+
+            <!-- Unknown Detections -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>Unknown Detections</h3>
+                    <span class="badge" id="unknownCount">0</span>
+                </div>
+                <div class="unknowns-grid" id="unknownsGrid">
+                    <div class="empty-state" id="noUnknowns">No detections yet</div>
+                </div>
+            </div>
+
+            <!-- Attendees Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>ID</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendeeTable">
+                        <tr>
+                            <td colspan="3" class="empty-state">No attendees yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Start Session Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h2>🎬 Start New Session</h2>
+
+            <div class="form-group">
+                <label>Section <span style="color: var(--danger);">*</span></label>
+                <select id="sectionSelect">
+                    {% for s in sections %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Session Name (Optional)</label>
+                <input type="text" id="sessionInput" placeholder="e.g. Lecture_1">
+            </div>
+
+            <div class="form-group">
+                <label>Preload Cache (Optional)</label>
+                <select id="cacheSelect">
+                    <option value="">None - Start Fresh</option>
+                    {% for c in caches %}
+                    <option value="{{ c }}">{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="exportCheck" checked>
+                    <label style="margin: 0;">Enable Video Export</label>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" onclick="startSession()">Start Session</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // STATE
+        // ============================================
+        let pollInterval = null;
+        let isPaused = false;
+        let isLoading = false;
+
+        const videoEl = document.getElementById('videoFeed');
+        const offlineMsg = document.getElementById('offlineMsg');
+        const loaderMsg = document.getElementById('loaderMsg');
+        const videoControls = document.getElementById('videoControls');
+        const startBtn = document.getElementById('startBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+
+        // ============================================
+        // MODAL
+        // ============================================
+        function openModal() {
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        function closeModal(e) {
+            if (!e || e.target === document.getElementById('modalOverlay')) {
+                document.getElementById('modalOverlay').classList.remove('active');
+            }
+        }
+
+        // ============================================
+        // UI UPDATES
+        // ============================================
+        function showLoader() {
+            isLoading = true;
+            offlineMsg.style.display = 'none';
+            videoEl.style.display = 'none';
+            loaderMsg.style.display = 'block';
+            startBtn.disabled = true;
+            startBtn.textContent = '⏳ Starting...';
+        }
+
+        function showVideo() {
+            isLoading = false;
+            offlineMsg.style.display = 'none';
+            loaderMsg.style.display = 'none';
+            videoEl.style.display = 'block';
+            videoEl.src = '/video_feed?' + Date.now();
+            startBtn.style.display = 'none';
+            document.getElementById('statusValue').innerHTML = "Live <span style='color:var(--success)'>●</span>";
+            document.getElementById('statusValue').style.color = 'white';
+        }
+
+        function showOffline() {
+            isLoading = false;
+            videoEl.style.display = 'none';
+            videoEl.src = '';
+            loaderMsg.style.display = 'none';
+            offlineMsg.style.display = 'block';
+            startBtn.style.display = 'block';
+            startBtn.disabled = false;
+            startBtn.textContent = '🚀 Start Session';
+            document.getElementById('statusValue').textContent = 'Offline';
+            document.getElementById('statusValue').style.color = 'var(--text-secondary)';
+            document.getElementById('sessionName').textContent = '-';
+            document.getElementById('presentCount').textContent = '0';
+            document.getElementById('totalCount').textContent = '0';
+            document.getElementById('rateValue').textContent = '0%';
+            isPaused = false;
+            updatePauseBtn();
+        }
+
+        function updatePauseBtn() {
+            pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+        }
+
+        // ============================================
+        // SESSION CONTROL
+        // ============================================
+        async function startSession() {
+            const section = document.getElementById('sectionSelect').value;
+            const session = document.getElementById('sessionInput').value;
+            const cache = document.getElementById('cacheSelect').value;
+            const exportEnabled = document.getElementById('exportCheck').checked;
+
+            if (!section) {
+                alert('Please select a section');
+                return;
+            }
+
+            closeModal();
+            showLoader();
+
+            try {
+                const res = await fetch('/start_session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        section,
+                        session,
+                        source: '0',
+                        cache: cache || null,
+                        export: exportEnabled
+                    })
+                });
+                const data = await res.json();
+
+                if (data.status === 'started' || data.status === 'running') {
+                    // Wait 8 seconds for camera to initialize, then show video
+                    setTimeout(() => {
+                        showVideo();
+                        startPolling();
+                    }, 8000);
+                } else if (data.error) {
+                    alert('Error: ' + data.error);
+                    showOffline();
+                }
+            } catch (e) {
+                console.error('Start error:', e);
+                showOffline();
+            }
+        }
+
+        async function stopSession() {
+            if (!confirm('Stop this session?')) return;
+            try {
+                await fetch('/stop_session', { method: 'POST' });
+                stopPolling();
+                showOffline();
+            } catch (e) {
+                console.error('Stop error:', e);
+            }
+        }
+
+        async function togglePause() {
+            const action = isPaused ? 'resume' : 'pause';
+            try {
+                await fetch('/control_session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+                isPaused = !isPaused;
+                updatePauseBtn();
+            } catch (e) {
+                console.error('Control error:', e);
+            }
+        }
+
+        // ============================================
+        // STATS POLLING
+        // ============================================
+        async function fetchStats() {
+            try {
+                const res = await fetch('/get_stats');
+                const data = await res.json();
+
+                if (!data.is_running && !isLoading) {
+                    stopPolling();
+                    showOffline();
+                    return;
+                }
+
+                if (data.active) {
+                    document.getElementById('sessionName').textContent = data.session_name || '-';
+                    document.getElementById('presentCount').textContent = data.present || 0;
+                    document.getElementById('totalCount').textContent = data.total || 0;
+                    const rate = data.total > 0 ? Math.round((data.present / data.total) * 100) : 0;
+                    document.getElementById('rateValue').textContent = rate + '%';
+
+                    // Attendees
+                    const tbody = document.getElementById('attendeeTable');
+                    if (data.attendees && data.attendees.length > 0) {
+                        tbody.innerHTML = data.attendees.map(a => `
+                            <tr>
+                                <td><strong>${a.name || ''}</strong></td>
+                                <td style="color:var(--text-secondary)">${a.id || ''}</td>
+                                <td>${a.last_seen ? new Date(a.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No attendees yet</td></tr>';
+                    }
+
+                    // Unknowns
+                    const unknowns = data.unknowns || [];
+                    document.getElementById('unknownCount').textContent = unknowns.length;
+                    const grid = document.getElementById('unknownsGrid');
+
+                    if (unknowns.length > 0) {
+                        grid.innerHTML = unknowns.map(u => `
+                            <div class="unknown-item">
+                                <img src="${u.image || ''}" 
+                                     onerror="this.parentElement.style.display='none'" alt="Unknown">
+                                <div class="track-id">ID: ${u.track_id || '?'}</div>
+                            </div>
+                        `).join('');
+                    } else {
+                        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No detections yet</div>';
+                    }
+                }
+            } catch (e) {
+                console.error('Stats error:', e);
+            }
+        }
+
+        function startPolling() {
+            if (!pollInterval) {
+                pollInterval = setInterval(fetchStats, 2000);  // 2 seconds
+                fetchStats();
+            }
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        async function init() {
+            try {
+                const res = await fetch('/get_stats');
+                const data = await res.json();
+                if (data.is_running) {
+                    showVideo();
+                    startPolling();
+                } else {
+                    showOffline();
+                }
+            } catch (e) {
+                showOffline();
+            }
+        }
+
+        init();
+    </script>
 </body>
 
 </html>

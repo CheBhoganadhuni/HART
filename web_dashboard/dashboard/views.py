@@ -18,18 +18,28 @@ COMMAND_PATH = os.path.join(PROJECT_ROOT, "data/commands.json")
 STREAM_PATH = os.path.join(PROJECT_ROOT, "data/live_stream.jpg")
 DB_PATH = os.path.join(PROJECT_ROOT, "data/attendance.db")
 EMBEDDINGS_DIR = os.path.join(PROJECT_ROOT, "data/embeddings")
+CACHE_DIR = os.path.join(PROJECT_ROOT, "data/persistent_cache")
 
 
 def index(request):
     """Renders the main dashboard."""
+    # Get available sections
     sections = []
     if os.path.exists(EMBEDDINGS_DIR):
         for f in os.listdir(EMBEDDINGS_DIR):
             if f.endswith(".pkl"):
                 sections.append(f.replace(".pkl", ""))
     
+    # Get available cache files
+    caches = []
+    if os.path.exists(CACHE_DIR):
+        for f in sorted(os.listdir(CACHE_DIR), reverse=True):
+            if f.startswith("cache_") and f.endswith(".pkl"):
+                caches.append(f)
+    
     context = {
         "sections": sorted(sections),
+        "caches": caches[:10],  # Limit to 10 most recent
         "is_running": CV_PROCESS is not None and CV_PROCESS.poll() is None
     }
     return render(request, "dashboard/index.html", context)
@@ -104,21 +114,37 @@ def start_session(request):
     section = data.get("section")
     session_name = data.get("session", "").strip()
     source = data.get("source", "0").strip()
+    cache_file = data.get("cache", "")  # Optional cache preload
+    export_enabled = data.get("export", True)
     
     if not section:
         return JsonResponse({"error": "Section is required"}, status=400)
+    
+    # Delete old live stream file to avoid showing stale frames
+    try:
+        if os.path.exists(STREAM_PATH):
+            os.remove(STREAM_PATH)
+    except Exception:
+        pass
     
     # Construct Command
     cmd = [
         os.path.join(PROJECT_ROOT, "venv/bin/python3"), 
         os.path.join(PROJECT_ROOT, "main.py"),
         "--section", section,
-        "--source", source,
-        "--export"
+        "--source", source
     ]
+    
+    if export_enabled:
+        cmd.append("--export")
     
     if session_name:
         cmd.extend(["--session", session_name])
+    
+    if cache_file:
+        cache_path = os.path.join(CACHE_DIR, cache_file)
+        if os.path.exists(cache_path):
+            cmd.extend(["--cache", cache_path])
     
     try:
         CV_PROCESS = subprocess.Popen(cmd, cwd=PROJECT_ROOT)
@@ -274,13 +300,21 @@ def get_stats(request):
                 except (ValueError, TypeError):
                     track_id = 0
             
-            # Convert image path to relative URL
+            # Convert image path to relative URL (relative to MEDIA_ROOT which is data/)
             rel_path = ""
             if image_path:
                 try:
-                    rel_path = os.path.relpath(image_path, str(PROJECT_ROOT))
-                except ValueError:
-                    rel_path = os.path.basename(image_path)
+                    # MEDIA_ROOT is PROJECT_ROOT/data, so make path relative to that
+                    data_dir = os.path.join(PROJECT_ROOT, "data")
+                    if image_path.startswith(str(data_dir)):
+                        rel_path = "/media/" + os.path.relpath(image_path, data_dir)
+                    elif "unknown_faces" in image_path:
+                        # Fallback: just use the last part after unknown_faces/
+                        rel_path = "/media/unknown_faces/" + os.path.basename(image_path)
+                    else:
+                        rel_path = "/media/" + os.path.basename(image_path)
+                except Exception:
+                    rel_path = ""
             
             stats["unknowns"].append({
                 "track_id": track_id,
