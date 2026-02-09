@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Reports - MOT Attendance</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --card-bg: #21262d;
+            --border: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #f0883e;
+            --danger: #f85149;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .topbar {
+            background: var(--bg-secondary);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .topbar h1 {
+            font-size: 1.25rem;
+        }
+
+        .back-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .back-btn:hover {
+            background: var(--border);
+        }
+
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-group label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 6px;
+            min-width: 150px;
+        }
+
+        .filter-group input[type="date"] {
+            color-scheme: dark;
+        }
+
+        /* Sessions Table */
+        .sessions-table {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .sessions-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .sessions-table th,
+        .sessions-table td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sessions-table th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .sessions-table tr:hover {
+            background: rgba(88, 166, 255, 0.05);
+        }
+
+        .sessions-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-closed {
+            background: var(--success);
+            color: #000;
+        }
+
+        .status-active {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .view-btn {
+            background: var(--accent);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .view-btn:hover {
+            opacity: 0.9;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sessions-table {
+                overflow-x: auto;
+            }
+
+            .sessions-table table {
+                min-width: 700px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="topbar">
+        <h1>📊 Session Reports</h1>
+        <a href="/" class="back-btn">← Dashboard</a>
+    </div>
+
+    <div class="main-container">
+        <!-- Filters -->
+        <div class="filters" id="filtersContainer" style="display: none;">
+            <div class="filter-group">
+                <label>Section</label>
+                <select id="sectionFilter">
+                    <option value="">All Sections</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Status</label>
+                <select id="statusFilter">
+                    <option value="">All</option>
+                    <option value="CLOSED">Closed</option>
+                    <option value="ACTIVE">Active</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Search</label>
+                <input type="text" id="searchInput" placeholder="Session name...">
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading sessions...</p>
+        </div>
+
+        <!-- Sessions Table -->
+        <div class="sessions-table" id="sessionsTable" style="display: none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Session Name</th>
+                        <th>Section</th>
+                        <th>Start Time</th>
+                        <th>Duration</th>
+                        <th>Students</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="sessionsBody">
+                </tbody>
+            </table>
+        </div>
+
+        <div id="emptyState" class="empty-state" style="display: none;">
+            <p>No sessions found matching your filters.</p>
+        </div>
+    </div>
+
+    <script>
+        let allSessions = [];
+        let sections = [];
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/reports/');
+                if (!res.ok) throw new Error('Failed to load sessions');
+                const data = await res.json();
+
+                if (data.error) {
+                    document.getElementById('loading').innerHTML =
+                        `<p style="color: var(--danger);">Error: ${data.error}</p>`;
+                    return;
+                }
+
+                allSessions = data.sessions || [];
+                sections = data.sections || [];
+
+                populateFilters();
+                renderSessions(allSessions);
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('filtersContainer').style.display = 'flex';
+
+            } catch (e) {
+                document.getElementById('loading').innerHTML =
+                    `<p style="color: var(--danger);">Error: ${e.message}</p>`;
+            }
+        }
+
+        function populateFilters() {
+            const select = document.getElementById('sectionFilter');
+            sections.forEach(sec => {
+                const opt = document.createElement('option');
+                opt.value = sec;
+                opt.textContent = sec;
+                select.appendChild(opt);
+            });
+        }
+
+        function renderSessions(sessions) {
+            const tbody = document.getElementById('sessionsBody');
+            const table = document.getElementById('sessionsTable');
+            const empty = document.getElementById('emptyState');
+
+            if (sessions.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+
+            table.style.display = 'block';
+            empty.style.display = 'none';
+            tbody.innerHTML = '';
+
+            sessions.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${s.session_name || '-'}</strong></td>
+                    <td>${s.section || '-'}</td>
+                    <td>${formatTime(s.start_time)}</td>
+                    <td>${s.duration_minutes ? s.duration_minutes + ' min' : '-'}</td>
+                    <td>${s.student_count || 0}</td>
+                    <td>
+                        <span class="status-badge ${s.status === 'CLOSED' ? 'status-closed' : 'status-active'}">
+                            ${s.status || 'Unknown'}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="/reports/${s.id}/" class="view-btn">📊 View</a>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '-';
+            try {
+                const d = new Date(isoStr);
+                return d.toLocaleString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch {
+                return isoStr;
+            }
+        }
+
+        function applyFilters() {
+            const section = document.getElementById('sectionFilter').value;
+            const status = document.getElementById('statusFilter').value;
+            const search = document.getElementById('searchInput').value.toLowerCase();
+
+            const filtered = allSessions.filter(s => {
+                if (section && s.section !== section) return false;
+                if (status && s.status !== status) return false;
+                if (search && !(s.session_name || '').toLowerCase().includes(search)) return false;
+                return true;
+            });
+
+            renderSessions(filtered);
+        }
+
+        // Event listeners
+        document.getElementById('sectionFilter').addEventListener('change', applyFilters);
+        document.getElementById('statusFilter').addEventListener('change', applyFilters);
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+
+        // Load on ready
+        loadSessions();
+    </script>
+</body>
+
+</html>

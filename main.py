@@ -33,6 +33,11 @@ last_verified_time = {} # {track_id: timestamp} - For Green User Throttling (120
 last_shadow_time = {} # {track_id: timestamp} - For Shadow Updates (30s)
 seen_in_pulse_window = set() # {student_id} - Accumulates seen IDs for 10s pulse
 
+# Phase 2c: Interval Logging State Machine
+# Tracks presence state to detect Absent→Present and Present→Absent transitions
+# {student_id: {"is_present": bool, "active_interval_id": int | None}}
+student_presence_state = {}
+
 class AsyncVideoStream:
     """Dedicated thread for high-speed frame decoding."""
     def __init__(self, source, stride=1):
@@ -381,6 +386,35 @@ def main():
                 # Sync to DB (Bulk Update)
                 threading.Thread(target=db.global_heartbeat_sync, args=(session_id, present_ids), daemon=True).start()
                 
+                # ============================================
+                # PHASE 2c: Interval Logging State Machine
+                # Writes to DB ONLY on state transitions
+                # ============================================
+                present_set = set(present_ids)
+                
+                # 1. Detect Absent → Present (new intervals)
+                for student_id in present_set:
+                    if student_id not in student_presence_state or not student_presence_state[student_id]["is_present"]:
+                        # Student just arrived → Start new interval
+                        student_name = id_to_name.get(student_id, student_id)
+                        interval_id = db.start_interval(session_id, student_id, student_name)
+                        student_presence_state[student_id] = {
+                            "is_present": True,
+                            "active_interval_id": interval_id
+                        }
+                        print(f"[Interval] {student_id} ENTERED at pulse")
+                
+                # 2. Detect Present → Absent (close intervals)
+                for student_id, state in list(student_presence_state.items()):
+                    if state["is_present"] and student_id not in present_set:
+                        # Student just left → Close interval
+                        db.close_interval(state["active_interval_id"])
+                        student_presence_state[student_id] = {
+                            "is_present": False,
+                            "active_interval_id": None
+                        }
+                        print(f"[Interval] {student_id} EXITED at pulse")
+                
                 # Reset Window
                 seen_in_pulse_window.clear()
                 last_global_pulse = time.time()
@@ -592,6 +626,12 @@ def main():
              present_students = [name for tid, name in tracked_identities.items() if name]
              db.global_heartbeat_sync(session_id, present_students)
         except: pass
+        
+        # Phase 2c: Close all open intervals on session end
+        try:
+            db.close_all_intervals(session_id)
+        except Exception as e:
+            print(f"[System] Failed to close intervals: {e}")
         
         # Clean up live stream file to avoid stale frames on next session
         try:

@@ -522,8 +522,11 @@
                 style="display: block; padding: 14px 20px; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border);">📹
                 Live Dashboard</a>
             <a href="/process-mp4"
-                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none;">🎬
+                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none; border-bottom: 1px solid var(--border);">🎬
                 Process MP4</a>
+            <a href="/reports/"
+                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none;">📊
+                Session Reports</a>
         </div>
     </div>
 
@@ -1112,6 +1115,15 @@
         }
 
         init();
+
+        // Session Reports Navigation
+        async function showSessionPicker() {
+            // Simple prompt for session ID (can be enhanced with modal later)
+            const sessionId = prompt('Enter Session ID to view report:');
+            if (sessionId && !isNaN(sessionId)) {
+                window.location.href = `/reports/${sessionId}/`;
+            }
+        }
     </script>
 </body>
 

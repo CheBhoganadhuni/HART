@@ -728,3 +728,251 @@ def mp4_results(request):
             conn.close()
     
     return JsonResponse(results)
+
+
+# ============================================
+# PHASE 2c: REPORT ANALYTICS
+# ============================================
+
+def session_report(request, session_id):
+    """
+    Returns detailed analytics for a session including:
+    - Per-student intervals (present blocks)
+    - Derived bunk intervals (gaps between present blocks)
+    - Class-level statistics
+    """
+    from datetime import datetime, timedelta
+    
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        cursor = conn.cursor()
+        
+        # 1. Get session metadata
+        cursor.execute('''
+            SELECT session_name, section, start_time, end_time, status
+            FROM sessions WHERE id = ?
+        ''', (session_id,))
+        session_row = cursor.fetchone()
+        
+        if not session_row:
+            return JsonResponse({"error": "Session not found"}, status=404)
+        
+        session_name, section, start_time_str, end_time_str, status = session_row
+        
+        # Parse times
+        def parse_time(t):
+            if not t:
+                return None
+            if isinstance(t, datetime):
+                return t
+            try:
+                return datetime.fromisoformat(t)
+            except:
+                return datetime.strptime(t, "%Y-%m-%d %H:%M:%S.%f")
+        
+        session_start = parse_time(start_time_str)
+        # Use local time (IST) to match DB timestamps
+        session_end = parse_time(end_time_str) or datetime.now()
+        session_duration = (session_end - session_start).total_seconds() / 60.0
+        
+        # 2. Get all intervals for this session
+        cursor.execute('''
+            SELECT student_id, student_name, entry_time, exit_time, duration_minutes
+            FROM attendance_intervals
+            WHERE session_id = ?
+            ORDER BY student_id, entry_time
+        ''', (session_id,))
+        interval_rows = cursor.fetchall()
+        
+        # For active sessions, use sum of interval durations as fallback
+        if status == 'ACTIVE' and interval_rows:
+            total_interval_duration = sum((r[4] or 0) for r in interval_rows)
+            if total_interval_duration > session_duration:
+                session_duration = total_interval_duration
+        
+        # 3. Group by student and compute analytics
+        students_data = {}
+        for row in interval_rows:
+            student_id, student_name, entry_str, exit_str, duration = row
+            
+            if student_id not in students_data:
+                students_data[student_id] = {
+                    "student_id": student_id,
+                    "student_name": student_name or student_id,
+                    "intervals": [],
+                    "present_minutes": 0.0
+                }
+            
+            entry_time = parse_time(entry_str)
+            exit_time = parse_time(exit_str)
+            
+            students_data[student_id]["intervals"].append({
+                "start": entry_str,
+                "end": exit_str,
+                "status": "present",
+                "entry": entry_time,
+                "exit": exit_time
+            })
+            students_data[student_id]["present_minutes"] += duration or 0.0
+        
+        # 4. Derive absent intervals (gaps) for each student - NO HARDCODED THRESHOLD
+        # Report all gaps as raw data; let faculty interpret
+        
+        results = []
+        for student_id, data in students_data.items():
+            intervals = data["intervals"]
+            all_intervals = []
+            absent_minutes = 0.0
+            
+            # Sort by entry time
+            intervals.sort(key=lambda x: x["entry"] or datetime.min)
+            
+            for i, interval in enumerate(intervals):
+                # Add present interval
+                all_intervals.append({
+                    "start": interval["start"],
+                    "end": interval["end"],
+                    "status": "present"
+                })
+                
+                # Check for gap to next interval
+                if i < len(intervals) - 1:
+                    current_exit = interval["exit"]
+                    next_entry = intervals[i+1]["entry"]
+                    
+                    if current_exit and next_entry:
+                        gap_minutes = (next_entry - current_exit).total_seconds() / 60.0
+                        
+                        if gap_minutes > 0.5:  # Add any meaningful gap
+                            all_intervals.append({
+                                "start": interval["end"],
+                                "end": intervals[i+1]["start"],
+                                "status": "absent",
+                                "gap_minutes": round(gap_minutes, 1)
+                            })
+                            absent_minutes += gap_minutes
+            
+            # Calculate attendance percentage
+            present_pct = (data["present_minutes"] / session_duration * 100) if session_duration > 0 else 0
+            
+            results.append({
+                "student_id": student_id,
+                "student_name": data["student_name"],
+                "present_minutes": round(data["present_minutes"], 1),
+                "absent_minutes": round(absent_minutes, 1),
+                "attendance_percent": round(present_pct, 1),
+                "intervals": all_intervals
+            })
+        
+        # 5. Compute class-level stats
+        total_students = len(results)
+        avg_attendance = sum(s["attendance_percent"] for s in results) / total_students if total_students > 0 else 0
+        total_absent = sum(s["absent_minutes"] for s in results)
+        
+        response = {
+            "session_meta": {
+                "session_id": session_id,
+                "session_name": session_name,
+                "section": section,
+                "start_time": start_time_str,
+                "end_time": end_time_str,
+                "duration_minutes": round(session_duration, 1),
+                "status": status
+            },
+            "students": results,
+            "class_stats": {
+                "total_students": total_students,
+                "avg_attendance_percent": round(avg_attendance, 1),
+                "total_absent_minutes": round(total_absent, 1)
+            }
+        }
+        
+        return JsonResponse(response)
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+    finally:
+        if conn:
+            conn.close()
+
+def session_report_page(request, session_id):
+    """Renders the report dashboard page."""
+    return render(request, "dashboard/reports.html", {"session_id": session_id})
+
+
+# ============================================
+# PHASE 2c: REPORTS INDEX PAGE
+# ============================================
+
+def reports_index(request):
+    """Returns all sessions for the reports index page."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        cursor = conn.cursor()
+        
+        # Get all sessions with aggregated interval data
+        cursor.execute('''
+            SELECT 
+                s.id, 
+                s.session_name, 
+                s.section, 
+                s.start_time, 
+                s.end_time, 
+                s.status,
+                COUNT(DISTINCT ai.student_id) as student_count,
+                COALESCE(SUM(ai.duration_minutes), 0) as total_present_min
+            FROM sessions s
+            LEFT JOIN attendance_intervals ai ON s.id = ai.session_id
+            GROUP BY s.id
+            ORDER BY s.start_time DESC
+        ''')
+        rows = cursor.fetchall()
+        
+        # Get distinct sections for filter dropdown
+        cursor.execute('SELECT DISTINCT section FROM sessions WHERE section IS NOT NULL ORDER BY section')
+        sections = [r[0] for r in cursor.fetchall()]
+        
+        sessions = []
+        for row in rows:
+            session_id, name, section, start_str, end_str, status, student_count, total_present = row
+            
+            # Calculate duration if both times exist
+            duration = None
+            if start_str and end_str:
+                try:
+                    from datetime import datetime
+                    start = datetime.fromisoformat(start_str) if isinstance(start_str, str) else start_str
+                    end = datetime.fromisoformat(end_str) if isinstance(end_str, str) else end_str
+                    duration = round((end - start).total_seconds() / 60.0, 1)
+                except:
+                    pass
+            
+            sessions.append({
+                "id": session_id,
+                "session_name": name,
+                "section": section,
+                "start_time": start_str,
+                "end_time": end_str,
+                "status": status,
+                "student_count": student_count,
+                "total_present_minutes": round(total_present, 1) if total_present else 0,
+                "duration_minutes": duration
+            })
+        
+        return JsonResponse({
+            "sessions": sessions,
+            "sections": sections
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+    finally:
+        if conn:
+            conn.close()
+
+
+def reports_index_page(request):
+    """Renders the reports index page."""
+    return render(request, "dashboard/reports_index.html")

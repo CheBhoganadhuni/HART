@@ -82,6 +82,20 @@ class DBManager:
             )
         ''')
         
+        # Phase 2c: Attendance Intervals for tracking entry/exit times
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attendance_intervals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                student_id TEXT NOT NULL,
+                student_name TEXT,
+                entry_time DATETIME NOT NULL,
+                exit_time DATETIME,
+                duration_minutes REAL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
+        
         conn.commit()
         conn.close()
 
@@ -147,8 +161,11 @@ class DBManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Create Session
-        cursor.execute("INSERT INTO sessions (session_name, section) VALUES (?, ?)", (session_name, section))
+        # Create Session with explicit IST timestamp
+        cursor.execute(
+            "INSERT INTO sessions (session_name, section, start_time) VALUES (?, ?, ?)", 
+            (session_name, section, datetime.now().isoformat())
+        )
         session_id = cursor.lastrowid
         
         # Initialize Attendance for all section students (By ID)
@@ -166,7 +183,7 @@ class DBManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            now = datetime.now()
+            now = datetime.now().isoformat()
             cursor.execute("UPDATE sessions SET status = 'CLOSED', end_time = ? WHERE id = ?", (now, session_id))
             conn.commit()
             print(f"[DB] Session {session_id} closed at {now}.")
@@ -251,6 +268,135 @@ class DBManager:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    # ============================================
+    # PHASE 2c: INTERVAL LOGGING METHODS
+    # ============================================
+    
+    def start_interval(self, session_id, student_id, student_name):
+        """
+        Opens a new attendance interval when student becomes present.
+        Returns the interval_id for later closing.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO attendance_intervals (session_id, student_id, student_name, entry_time)
+                VALUES (?, ?, ?, ?)
+            ''', (session_id, student_id, student_name, datetime.now().isoformat()))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"[DB] Start Interval Error: {e}")
+            return None
+        finally:
+            conn.close()
+    
+    def close_interval(self, interval_id, exit_time=None):
+        """
+        Closes an open interval when student becomes absent.
+        Calculates duration_minutes automatically.
+        """
+        if not interval_id:
+            return
+        if exit_time is None:
+            exit_time = datetime.now().isoformat()
+            
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            # Get entry_time to calculate duration
+            cursor.execute('SELECT entry_time FROM attendance_intervals WHERE id = ?', (interval_id,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                entry_time = datetime.fromisoformat(row[0]) if isinstance(row[0], str) else row[0]
+                exit_time_dt = datetime.fromisoformat(exit_time) if isinstance(exit_time, str) else exit_time
+                duration = (exit_time_dt - entry_time).total_seconds() / 60.0
+            else:
+                duration = 0.0
+            
+            cursor.execute('''
+                UPDATE attendance_intervals 
+                SET exit_time = ?, duration_minutes = ?
+                WHERE id = ?
+            ''', (exit_time, duration, interval_id))
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Close Interval Error: {e}")
+        finally:
+            conn.close()
+    
+    def close_all_intervals(self, session_id, exit_time=None):
+        """
+        Session end safety: Closes all open intervals for a session.
+        Called when session stops to ensure no dangling intervals.
+        """
+        if exit_time is None:
+            exit_time = datetime.now().isoformat()
+            
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            # Find all open intervals (exit_time is NULL)
+            cursor.execute('''
+                SELECT id, entry_time FROM attendance_intervals 
+                WHERE session_id = ? AND exit_time IS NULL
+            ''', (session_id,))
+            open_intervals = cursor.fetchall()
+            
+            for interval_id, entry_time_str in open_intervals:
+                if entry_time_str:
+                    entry_time = datetime.fromisoformat(entry_time_str) if isinstance(entry_time_str, str) else entry_time_str
+                    exit_time_dt = datetime.fromisoformat(exit_time) if isinstance(exit_time, str) else exit_time
+                    duration = (exit_time_dt - entry_time).total_seconds() / 60.0
+                else:
+                    duration = 0.0
+                
+                cursor.execute('''
+                    UPDATE attendance_intervals 
+                    SET exit_time = ?, duration_minutes = ?
+                    WHERE id = ?
+                ''', (exit_time, duration, interval_id))
+            
+            conn.commit()
+            print(f"[DB] Closed {len(open_intervals)} open intervals for session {session_id}")
+        except Exception as e:
+            print(f"[DB] Close All Intervals Error: {e}")
+        finally:
+            conn.close()
+    
+    def get_session_intervals(self, session_id):
+        """
+        Returns all intervals for a session (for reports).
+        Returns list of dicts with interval data.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT id, student_id, student_name, entry_time, exit_time, duration_minutes
+                FROM attendance_intervals
+                WHERE session_id = ?
+                ORDER BY student_id, entry_time
+            ''', (session_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "student_id": r[1],
+                    "student_name": r[2],
+                    "entry_time": r[3],
+                    "exit_time": r[4],
+                    "duration_minutes": r[5] or 0.0
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            print(f"[DB] Get Session Intervals Error: {e}")
+            return []
+        finally:
+            conn.close()
 
 if __name__ == "__main__":
     db = DBManager()

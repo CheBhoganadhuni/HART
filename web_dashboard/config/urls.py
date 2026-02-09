@@ -37,4 +37,9 @@ urlpatterns = [
     path('pause-mp4', views.pause_mp4, name='pause_mp4'),
     path('mp4-progress', views.mp4_progress, name='mp4_progress'),
     path('mp4-results', views.mp4_results, name='mp4_results'),
+    # Phase 2c: Reports
+    path('reports/', views.reports_index_page, name='reports_index'),
+    path('api/reports/', views.reports_index, name='reports_index_api'),
+    path('reports/<int:session_id>/', views.session_report_page, name='session_report_page'),
+    path('api/reports/<int:session_id>/', views.session_report, name='session_report'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

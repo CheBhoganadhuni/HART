@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Report - MOT Attendance</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --card-bg: #21262d;
+            --border: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #f0883e;
+            --danger: #f85149;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Top Bar */
+        .topbar {
+            background: var(--bg-secondary);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .topbar h1 {
+            font-size: 1.25rem;
+        }
+
+        .back-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .back-btn:hover {
+            background: var(--border);
+        }
+
+        /* Main Container */
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Session Header */
+        .session-header {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .session-header h2 {
+            margin-bottom: 8px;
+        }
+
+        .session-meta {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            color: var(--text-secondary);
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+        }
+
+        .stat-success {
+            color: var(--success);
+        }
+
+        .stat-warning {
+            color: var(--warning);
+        }
+
+        .stat-danger {
+            color: var(--danger);
+        }
+
+        /* Timeline Section */
+        .section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .section h3 {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Timeline Chart */
+        .timeline-container {
+            overflow-x: auto;
+        }
+
+        .timeline-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            min-height: 36px;
+        }
+
+        .timeline-label {
+            width: 150px;
+            flex-shrink: 0;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            padding-right: 12px;
+            text-align: right;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .timeline-bar-container {
+            flex: 1;
+            height: 24px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            position: relative;
+            min-width: 400px;
+        }
+
+        .timeline-block {
+            position: absolute;
+            height: 100%;
+            border-radius: 2px;
+        }
+
+        .timeline-block.present {
+            background: linear-gradient(90deg, var(--success), #2ea043);
+        }
+
+        .timeline-block.absent {
+            background: linear-gradient(90deg, var(--danger), #da3633);
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+
+        /* Bunk Alert Table */
+        .alert-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .alert-table th,
+        .alert-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .alert-table th {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .alert-badge {
+            background: var(--danger);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        /* Export Buttons */
+        .export-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+                color: black;
+            }
+
+            .topbar,
+            .export-buttons {
+                display: none;
+            }
+
+            .section,
+            .stat-card,
+            .session-header {
+                border: 1px solid #ccc;
+                background: white;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="topbar">
+        <h1>📊 Session Report</h1>
+        <a href="/" class="back-btn">← Back to Dashboard</a>
+    </div>
+
+    <div class="main-container">
+        <!-- Loading State -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading report data...</p>
+        </div>
+
+        <!-- Content (hidden until loaded) -->
+        <div id="content" style="display: none;">
+            <!-- Session Header -->
+            <div class="session-header">
+                <h2 id="sessionName">Session Report</h2>
+                <div class="session-meta">
+                    <span>📁 Section: <strong id="sectionName">-</strong></span>
+                    <span>🕐 Start: <strong id="startTime">-</strong></span>
+                    <span>🕐 End: <strong id="endTime">-</strong></span>
+                    <span>⏱️ Duration: <strong id="duration">-</strong></span>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalStudents">0</div>
+                    <div class="stat-label">Total Students</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-success" id="avgAttendance">0%</div>
+                    <div class="stat-label">Avg Attendance</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-warning" id="totalAbsent">0</div>
+                    <div class="stat-label">Absent (min)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="sessionDuration">0</div>
+                    <div class="stat-label">Minutes</div>
+                </div>
+            </div>
+
+            <!-- Timeline Section -->
+            <div class="section">
+                <h3>📅 Attendance Timeline</h3>
+                <div class="timeline-container" id="timelineContainer">
+                    <!-- Timeline rows will be added here -->
+                </div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--success);"></div>
+                        <span>Present</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--danger);"></div>
+                        <span>Absent</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bunk Alerts Section -->
+            <div class="section" id="bunkSection" style="display: none;">
+                <h3>⚠️ Bunk Alerts (≥15 min absence)</h3>
+                <table class="alert-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Student ID</th>
+                            <th>Bunk Time</th>
+                            <th>Attendance</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bunkTableBody">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Export Buttons -->
+            <div class="export-buttons">
+                <button class="btn btn-primary" onclick="exportCSV()">📥 Export CSV</button>
+                <button class="btn btn-secondary" onclick="window.print()">🖨️ Print Report</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SESSION_ID = {{ session_id }};
+        let reportData = null;
+
+        async function loadReport() {
+            try {
+                const res = await fetch(`/api/reports/${SESSION_ID}/`);
+                if (!res.ok) throw new Error('Failed to load report');
+                reportData = await res.json();
+
+                if (reportData.error) {
+                    document.getElementById('loading').innerHTML = `<p style="color: var(--danger);">Error: ${reportData.error}</p>`;
+                    return;
+                }
+
+                renderReport(reportData);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (e) {
+                document.getElementById('loading').innerHTML = `<p style="color: var(--danger);">Error loading report: ${e.message}</p>`;
+            }
+        }
+
+        function renderReport(data) {
+            const meta = data.session_meta;
+            const stats = data.class_stats;
+
+            // Session Header
+            document.getElementById('sessionName').textContent = `📊 ${meta.session_name}`;
+            document.getElementById('sectionName').textContent = meta.section;
+            document.getElementById('startTime').textContent = formatTime(meta.start_time);
+            document.getElementById('endTime').textContent = formatTime(meta.end_time);
+            document.getElementById('duration').textContent = `${meta.duration_minutes.toFixed(1)} min`;
+
+            // Stats
+            document.getElementById('totalStudents').textContent = stats.total_students;
+            document.getElementById('avgAttendance').textContent = `${stats.avg_attendance_percent}%`;
+            document.getElementById('totalAbsent').textContent = stats.total_absent_minutes || 0;
+            document.getElementById('sessionDuration').textContent = meta.duration_minutes.toFixed(0);
+
+            // Timeline
+            renderTimeline(data.students, meta);
+
+            // Bunk Alerts Table
+            renderBunkAlerts(data.students.filter(s => s.bunk_alert));
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '-';
+            const d = new Date(isoStr);
+            return d.toLocaleString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                day: '2-digit',
+                month: 'short'
+            });
+        }
+
+        function renderTimeline(students, meta) {
+            const container = document.getElementById('timelineContainer');
+            container.innerHTML = '';
+
+            const sessionStart = new Date(meta.start_time).getTime();
+            const sessionEnd = new Date(meta.end_time || Date.now()).getTime();
+            const totalDuration = sessionEnd - sessionStart;
+
+            students.forEach(student => {
+                const row = document.createElement('div');
+                row.className = 'timeline-row';
+
+                const label = document.createElement('div');
+                label.className = 'timeline-label';
+                label.textContent = student.student_name;
+                label.title = `${student.student_id} - ${student.attendance_percent}%`;
+
+                const barContainer = document.createElement('div');
+                barContainer.className = 'timeline-bar-container';
+
+                student.intervals.forEach(interval => {
+                    const start = new Date(interval.start).getTime();
+                    const end = new Date(interval.end || sessionEnd).getTime();
+
+                    const left = ((start - sessionStart) / totalDuration) * 100;
+                    const width = ((end - start) / totalDuration) * 100;
+
+                    if (width > 0.1) {  // Only render visible blocks
+                        const block = document.createElement('div');
+                        block.className = `timeline-block ${interval.status}`;
+                        block.style.left = `${Math.max(0, left)}%`;
+                        block.style.width = `${Math.min(100 - left, width)}%`;
+                        barContainer.appendChild(block);
+                    }
+                });
+
+                row.appendChild(label);
+                row.appendChild(barContainer);
+                container.appendChild(row);
+            });
+        }
+
+        function renderBunkAlerts(bunkStudents) {
+            if (bunkStudents.length === 0) return;
+
+            document.getElementById('bunkSection').style.display = 'block';
+            const tbody = document.getElementById('bunkTableBody');
+            tbody.innerHTML = '';
+
+            bunkStudents.forEach(student => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${student.student_name}</td>
+                    <td>${student.student_id}</td>
+                    <td><span class="alert-badge">${student.bunk_minutes} min</span></td>
+                    <td>${student.attendance_percent}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function exportCSV() {
+            if (!reportData) return;
+
+            let csv = 'Student Name,Student ID,Present (min),Absent (min),Attendance %\n';
+            reportData.students.forEach(s => {
+                csv += `"${s.student_name}","${s.student_id}",${s.present_minutes},${s.absent_minutes},${s.attendance_percent}\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report_${reportData.session_meta.session_name}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Load on page ready
+        loadReport();
+    </script>
+</body>
+
+</html>
