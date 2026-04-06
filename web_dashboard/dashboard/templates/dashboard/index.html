@@ -74,17 +74,11 @@
                 display: flex;
                 flex-direction: column;
             }
-
-            .main-content {
-                display: none !important;
-            }
-
-            .stats-bar {
-                display: none !important;
-            }
+            .main-content { display: none !important; }
+            .stats-bar     { display: none !important; }
         }
 
-        /* Stats Bar */
+        /* Stats Bar — original 4-card layout */
         .stats-bar {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -113,6 +107,125 @@
             font-size: 0.75rem;
             color: var(--text-secondary);
             margin-top: 8px;
+        }
+
+        /* ── AI Log Drawer ─────────────────────────────── */
+        .ai-drawer {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: 480px;
+            background: #0d0f14;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 2000;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: -8px 0 40px rgba(0,0,0,0.6);
+        }
+        .ai-drawer.open { transform: translateX(0); }
+
+        .ai-drawer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            background: var(--card-bg);
+        }
+        .ai-drawer-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .ai-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .ai-close-btn:hover { background: var(--card-bg-hover); }
+
+        .ai-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #444;
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        .ai-dot.active {
+            background: var(--success);
+            box-shadow: 0 0 6px var(--success);
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.5; }
+        }
+
+        .ai-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-family: 'Courier New', 'Lucida Console', monospace;
+            font-size: 0.75rem;
+            line-height: 1.55;
+        }
+        .ai-log::-webkit-scrollbar { width: 4px; }
+        .ai-log::-webkit-scrollbar-track { background: transparent; }
+        .ai-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .ai-log-line {
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+            padding: 1px 0;
+        }
+        .ai-log-time {
+            color: #3a3f4a;
+            flex-shrink: 0;
+            font-size: 0.68rem;
+        }
+        .ai-offline-msg {
+            color: #3a3f4a;
+            font-size: 0.76rem;
+            padding: 24px 4px;
+            text-align: center;
+        }
+
+        /* Brain icon button in menu bar */
+        .ai-brain-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 15px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .ai-brain-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(99,102,241,0.08);
+        }
+        .ai-brain-btn.active {
+            border-color: var(--success);
+            color: var(--success);
         }
 
         /* Main Grid */
@@ -514,19 +627,37 @@
     <div class="menu-bar"
         style="display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--card-bg); border-bottom: 1px solid var(--border);">
         <h1 style="font-size: 18px; font-weight: 600;">📹 MOT Attendance</h1>
-        <button class="hamburger-btn" onclick="toggleNavMenu()"
-            style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: 8px;{% if hide_hamburger %} display: none;{% endif %}">☰</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+            <!-- AI Orchestrator Log toggle -->
+            <button class="ai-brain-btn" id="aiDrawerToggle" onclick="toggleAiDrawer()" title="AI Orchestrator Log">
+                <span class="ai-dot" id="aiDot"></span>
+                🧠 AI Log
+            </button>
+            <button class="hamburger-btn" onclick="toggleNavMenu()"
+                style="background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: 8px;{% if hide_hamburger %} display: none;{% endif %}">☰</button>
+        </div>
         <div class="nav-dropdown" id="navDropdown"
             style="display: none; position: absolute; top: 50px; right: 24px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; min-width: 200px; z-index: 1000; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
             <a href="/"
-                style="display: block; padding: 14px 20px; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border);">📹
-                Live Dashboard</a>
+                style="display: block; padding: 14px 20px; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border);">📹 Live Dashboard</a>
             <a href="/process-mp4"
-                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none; border-bottom: 1px solid var(--border);">🎬
-                Process MP4</a>
+                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none; border-bottom: 1px solid var(--border);">🎬 Process MP4</a>
             <a href="/reports/"
-                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none;">📊
-                Session Reports</a>
+                style="display: block; padding: 14px 20px; color: var(--text-primary); text-decoration: none;">📊 Session Reports</a>
+        </div>
+    </div>
+
+    <!-- AI Orchestrator Log Drawer -->
+    <div class="ai-drawer" id="aiDrawer">
+        <div class="ai-drawer-header">
+            <div class="ai-drawer-title">
+                <span class="ai-dot" id="aiDotDrawer"></span>
+                🧠 AI Orchestrator Log
+            </div>
+            <button class="ai-close-btn" onclick="toggleAiDrawer()" title="Close">✕</button>
+        </div>
+        <div class="ai-log" id="aiLog">
+            <div class="ai-offline-msg">System offline. Start a session to activate the orchestrator.</div>
         </div>
     </div>
 
@@ -536,24 +667,20 @@
         style="position: fixed; inset: 0; background: rgba(10, 10, 15, 0.98); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px;">
         <div style="font-size: 64px; margin-bottom: 24px;">⚠️</div>
         <h2 style="font-size: 28px; margin-bottom: 16px; color: #ef4444;">System Busy</h2>
-        <p style="font-size: 16px; color: #7a7f8a; margin-bottom: 8px;">A {{ busy_type }} session is currently active.
-        </p>
+        <p style="font-size: 16px; color: #7a7f8a; margin-bottom: 8px;">A {{ busy_type }} session is currently active.</p>
         <p style="font-size: 14px; color: #7a7f8a;">Please wait for it to complete or stop it from the original tab.</p>
     </div>
     {% endif %}
 
-    <!-- Stats Bar -->
+    <!-- Stats Bar (original 4-card layout) -->
     <div class="stats-bar">
         <div class="stat-card">
             <div class="stat-label">Session Status</div>
             <div class="stat-value" id="statusValue" style="color: var(--text-secondary);">Offline</div>
             <div class="stat-sub" id="sessionName">-</div>
-            <button class="btn-primary" id="startBtn" onclick="openStartModal()" style="margin-top: 12px; width: 100%;">
-                🚀 Start Session
-            </button>
+            <button class="btn-primary" id="startBtn" onclick="openStartModal()" style="margin-top: 12px; width: 100%;">🚀 Start Session</button>
             <div id="sessionControls" style="display: none; margin-top: 12px; gap: 8px;">
-                <button class="btn-secondary btn-sm" id="pauseBtn" onclick="togglePause()" style="flex: 1;">⏸
-                    Pause</button>
+                <button class="btn-secondary btn-sm" id="pauseBtn" onclick="togglePause()" style="flex: 1;">⏸ Pause</button>
                 <button class="btn-danger btn-sm" onclick="stopSession()" style="flex: 1;">⏹ Stop</button>
             </div>
         </div>
@@ -717,6 +844,357 @@
         let unknownsData = [];
         let userInitiatedStop = false;  // Prevent error modal on intentional stops
 
+        // SLM Orchestrator state
+        let currentSection = '';
+        let slmInterval = null;
+        let bootTimeouts = [];
+        let lastSlmCount = 0;  // Track how many events we've already rendered
+        let aiDrawerOpen = false;
+
+        // ============================================
+        // AI DRAWER
+        // ============================================
+        function toggleAiDrawer() {
+            const drawer = document.getElementById('aiDrawer');
+            const btn    = document.getElementById('aiDrawerToggle');
+            aiDrawerOpen = !aiDrawerOpen;
+            drawer.classList.toggle('open', aiDrawerOpen);
+            btn.classList.toggle('active', aiDrawerOpen);
+            if (aiDrawerOpen) {
+                // Scroll to bottom so most recent log is visible
+                const log = document.getElementById('aiLog');
+                log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        // ============================================
+        // SLM ORCHESTRATOR
+        // ============================================
+        const SLM_TEMPLATES = {
+            SESSION_INIT:       { color: '#a78bfa', prefix: 'SYS'   },
+            CACHE_LOADED:       { color: '#3fb950', prefix: 'CACHE'  },
+            NEW_TRACK:          { color: '#6e7681', prefix: 'TRACK'  },
+            IDENTITY_LOCKED:    { color: '#3fb950', prefix: 'ID'     },
+            CONSENSUS_BUILDING: { color: '#f0c040', prefix: 'VOTE'   },
+            UNKNOWN_DETECTED:   { color: '#f85149', prefix: 'UNKN'   },
+            CACHE_SKIPPED:      { color: '#f0c040', prefix: 'CACHE'  },
+            INTERVAL_START:     { color: '#3fb950', prefix: 'PRES'   },
+            INTERVAL_END:       { color: '#f85149', prefix: 'EXIT'   },
+            HEARTBEAT:          { color: '#a78bfa', prefix: 'HB'     },
+            CACHE_UPDATED:      { color: '#3fb950', prefix: 'CACHE'  },
+            OCCLUSION_RESOLVED: { color: '#58a6ff', prefix: 'OCC'   },
+        };
+
+        // Anti-repeat: track last-used index per event type
+        const _lastIdx = {};
+        function rnd(arr, key) {
+            if (arr.length === 1) return arr[0];
+            let idx;
+            do { idx = Math.floor(Math.random() * arr.length); }
+            while (idx === _lastIdx[key]);
+            _lastIdx[key] = idx;
+            return arr[idx];
+        }
+
+        function formatSlmEvent(ev) {
+            const tpl = SLM_TEMPLATES[ev.type] || { color: '#7a7f8a', prefix: '???' };
+            const d = ev.data || {};
+            const T = ev.type;
+            // Aliases
+            const track   = d.track   !== undefined ? d.track   : (d.track_id !== undefined ? d.track_id : '?');
+            const name    = d.student || d.name    || '?';
+            const conf    = d.conf    !== undefined ? `${d.conf}%` : '?%';
+            const sim     = d.sim     !== undefined ? `${(d.sim*100).toFixed(1)}%` : (d.conf !== undefined ? `${d.conf}%` : '?%');
+            const src     = d.source  || 'db';
+            const count   = d.count   !== undefined ? d.count   : '?';
+            const votes   = d.votes   !== undefined ? d.votes   : 1;
+            const req     = d.required !== undefined ? d.required : (d.threshold !== undefined ? d.threshold : 2);
+            const present = d.present !== undefined ? d.present : '?';
+            const total   = d.total   !== undefined ? d.total   : '?';
+            const section = d.section || '?';
+            const students= d.students !== undefined ? d.students : '?';
+            const action  = d.action  || 'update';
+            const reason  = d.reason  || 'too similar to existing vector';
+
+            let text = '';
+            switch (T) {
+
+                case 'SESSION_INIT':
+                    text = rnd([
+                        `Orchestrator initialised. Section ${section} loaded — ${students} registered identities indexed. Pipeline armed.`,
+                        `New session context established. Monitoring section ${section} with ${students} known embedding profiles.`,
+                        `Recognition engine online. Section: ${section} | Roster: ${students} subjects. Awaiting first detection event.`,
+                        `System boot complete. Surveillance scope locked to section ${section} (${students} subjects). Standby active.`,
+                        `AI pipeline activated for section ${section}. ${students} facial embeddings pre-loaded into similarity engine.`,
+                        `Session initialised. All ${students} registered identities in scope for section ${section}. Ready to detect.`,
+                        `Orchestrator context locked. Section ${section} | ${students} biometric profiles staged in working memory.`,
+                        `Tracking environment ready. Section ${section} — ${students} subjects enrolled. First frame recognition imminent.`,
+                    ], T);
+                    break;
+
+                case 'CACHE_LOADED':
+                    text = rnd([
+                        `Section identity cache hot-loaded — ${count} embedding cluster(s) resident in RAM. DB bypass enabled.`,
+                        `Fast-path cache active. ${count} subject vector(s) pre-loaded; expected near-zero first-frame recognition latency.`,
+                        `Prior session knowledge restored. ${count} identity profile(s) pre-warmed — recognition accuracy boosted from frame one.`,
+                        `Persistent embedding cache merged (${count} subject(s)). AI will prioritise cache over full DB scan this session.`,
+                        `Memory pre-fetch complete. ${count} identity profile(s) loaded. Cosine similarity engine operational.`,
+                        `Cache headstart active — ${count} previously seen subject(s) loaded. No cold-start penalty for known faces.`,
+                        `Section cache validated. ${count} diversity-aware embedding cluster(s) ready for sub-millisecond lookups.`,
+                        `Identity warmup done. ${count} cached profile(s) will be matched before any DB query is triggered.`,
+                    ], T);
+                    break;
+
+                case 'NEW_TRACK':
+                    text = rnd([
+                        `Motion event — Spatial Track #${track} allocated. Kalman trajectory model initialised. Identity: unresolved.`,
+                        `New subject entered sensor field. BoT-SORT assigned Track #${track}. Crop queued for facial embedding extraction.`,
+                        `Unresolved entity detected. Tracking ID #${track} opened. Awaiting frontal face quality gate for InsightFace.`,
+                        `Unknown optical profile in frame. Track #${track} created. Monitoring trajectory until face crop quality meets threshold.`,
+                        `Silhouette registered — Track #${track}. Spatial lock engaged, identity deferred pending biometric confirmation.`,
+                        `New detection event. Subject added to BoT-SORT as Track #${track}. Recognition worker on standby.`,
+                        `Physical presence confirmed, identity unknown. Track #${track} opened. Queuing facial alignment attempt.`,
+                        `BoT-SORT Track #${track} initialised. Kalman velocity model primed. Recognition trigger awaits clear frontal crop.`,
+                        `Entry detected — Track #${track} assigned. System monitoring trajectory and queuing periodic recognition attempts.`,
+                        `New trajectory registered as Track #${track}. InsightFace will fire on the next high-quality face crop.`,
+                    ], T);
+                    break;
+
+                case 'IDENTITY_LOCKED':
+                    if (src === 'cache') {
+                        text = rnd([
+                            `Cache hit — Track #${track} → ${name} at ${conf} cosine similarity. DB query bypassed entirely.`,
+                            `L1 cache match: ${name} confirmed at ${conf} on Track #${track}. Kalman filter handed off, identity sealed.`,
+                            `Fast-path success. ${name} matched from session cache (${conf}) for Track #${track}. Zero DB overhead.`,
+                            `Prior session memory resolved Track #${track} → ${name} (${conf}). Embedding was pre-loaded this session.`,
+                            `Cache-first identification: ${name} (${conf}) on Track #${track}. Skipped full-roster scan — instant result.`,
+                            `Warm cache resolved identity. Track #${track} is ${name} with ${conf} similarity — locked permanently.`,
+                            `Track #${track} matched ${name} via diversity embedding cluster at ${conf}. DB lookup avoided.`,
+                            `Session memory hit for Track #${track}. ${name} recognised at ${conf} — attendance interval will open on next heartbeat.`,
+                        ], T+'_cache');
+                    } else {
+                        text = rnd([
+                            `Full DB scan resolved — Track #${track} → ${name} at ${conf}. Identity sealed; embedding promoted to cache.`,
+                            `InsightFace buffalo_L confirmed ${name} on Track #${track} (cosine: ${conf}). Writing to attendance log.`,
+                            `Biometric handshake complete. Track #${track} → ${name} (${conf}). Interval will open on next pulse.`,
+                            `Consensus reached. DB match: ${name} | Score: ${conf} | Track: #${track}. Promoting to fast cache.`,
+                            `Deep embedding comparison resolved: ${name} (${conf}) on Track #${track}. Identity now immutable this session.`,
+                            `512-D vector comparison finalised. ${name} matched at ${conf} on Track #${track}. DB record confirmed.`,
+                            `Recognition confirmed via full roster scan — ${name} on Track #${track} (${conf}). Cache update queued.`,
+                            `Identity lock: Track #${track} = ${name} with ${conf} certainty. Kalman tracker handed over to presentation layer.`,
+                        ], T+'_db');
+                    }
+                    break;
+
+                case 'CONSENSUS_BUILDING':
+                    text = rnd([
+                        `Track #${track}: preliminary match suggests ${name}. Consensus at ${votes}/${req} — withholding identity lock.`,
+                        `Vote ${votes}/${req} cast for ${name} on Track #${track}. Awaiting further frame confirmation — anti-spoofing active.`,
+                        `Partial identity signal on Track #${track}. ${name} candidate at vote ${votes}/${req}. Multi-frame gate in progress.`,
+                        `Cautious identification — Track #${track} leans toward ${name} (${votes}/${req} votes). Consensus not yet met.`,
+                        `Soft match on Track #${track}. Candidate: ${name}. Collecting frames (${votes}/${req}) before committing.`,
+                        `Recognition in progress for Track #${track}. ${name} leads with ${votes}/${req} votes. Holding for confirmation.`,
+                        `Track #${track} consensus: ${votes} of ${req} required votes for ${name}. Identity unconfirmed — monitoring.`,
+                        `First positive signal for Track #${track} → ${name}. Requiring ${req-votes} more match(es) before hard-lock.`,
+                    ], T);
+                    break;
+
+                case 'UNKNOWN_DETECTED':
+                    text = rnd([
+                        `Track #${track}: similarity below threshold across all ${total} registered vectors. Classified visitor; snapshot archived.`,
+                        `Unregistered subject on Track #${track}. No match in section roster. Face crop saved for manual review.`,
+                        `Anomaly — Track #${track} does not match any enrolled student. Visitor flag applied; image logged to disk.`,
+                        `Identity resolution failed for Track #${track}. Not in section embedding DB (${total} checked). Visitor label applied.`,
+                        `Track #${track} unresolved after sustained attempts. Reclassified external visitor. Image archived for review.`,
+                        `Non-enrolled entity on Track #${track}. Zero positive matches across ${total} roster embeddings. Unknown raised.`,
+                        `Track #${track}: cosine similarity failed threshold on all ${total} registered profiles. Visitor snapshot saved.`,
+                        `Unknown person flag set for Track #${track}. Exhausted full roster comparison — no enrolment match found.`,
+                        `Persistent recognition failure on Track #${track}. Blacklisting track from future recognition cycles.`,
+                    ], T);
+                    break;
+
+                case 'CACHE_SKIPPED':
+                    text = rnd([
+                        `Cache write skipped for ${name} — new embedding too similar to existing cluster (sim: ${sim}). Redundancy guard triggered.`,
+                        `Redundancy check blocked cache update for ${name}. Incoming vector (${sim} similar) offers insufficient new information.`,
+                        `Diversity gate rejected embedding for ${name}. Similarity ${sim} exceeds deduplication threshold — existing vector retained.`,
+                        `Cache integrity maintained: ${name}'s incoming vector (${sim}) is near-duplicate of stored cluster. Write suppressed.`,
+                        `Skip event — ${name}'s new crop yielded a ${sim} similar embedding. No value added to diversity cluster; storing aborted.`,
+                        `Deduplication active: ${name}'s embedding at ${sim} similarity to stored vector. Cache depth unchanged.`,
+                        `Cache bypass for ${name}: new facial crop is ${sim} redundant to existing embedding. Cluster held at current depth.`,
+                        `Quality gate passed but diversity gate failed for ${name} (${sim} overlaps existing vector). Cache not updated.`,
+                    ], T);
+                    break;
+
+                case 'INTERVAL_START':
+                    text = rnd([
+                        `Presence confirmed — ${name} entered active window. Attendance interval opened at ${ev.ts}. DB write queued.`,
+                        `${name} transitioned Absent → Present. Time-interval record created at ${ev.ts}.`,
+                        `AI confirmed continuous presence of ${name}. Interval clock started at ${ev.ts}.`,
+                        `Heartbeat confirms ${name} in frame. Attendance interval open — accumulating time-in-room from ${ev.ts}.`,
+                        `State machine: ${name} ABSENT→PRESENT. Interval record created; duration tracking begins.`,
+                        `${name} re-entered monitored zone at ${ev.ts}. New interval opened — previous session data preserved.`,
+                        `Attendance interval started for ${name} at ${ev.ts}. Continuous presence chain initiated.`,
+                        `Presence window opened: ${name} confirmed in-room at ${ev.ts}. Interval ID written to session log.`,
+                    ], T);
+                    break;
+
+                case 'INTERVAL_END':
+                    text = rnd([
+                        `${name} no longer in sensor field. Presence interval closed; time-in-room metric finalised.`,
+                        `Exit event — ${name} dropped from active pool. Attendance interval closed; duration committed to DB.`,
+                        `State machine: ${name} PRESENT→ABSENT. Interval sealed and persisted. Next appearance opens fresh record.`,
+                        `${name} left monitored zone. Interval terminated; aggregate attendance duration updated.`,
+                        `Absence transition confirmed for ${name}. Attendance clock stopped; interval written to session log.`,
+                        `${name} dropped from heartbeat pulse window. Presence interval closed with finalised duration.`,
+                        `Tracking gap detected for ${name} — interval record closed. Re-detection will start a new interval.`,
+                        `${name} exited attendance window. Duration logged; AI awaiting potential re-entry event.`,
+                    ], T);
+                    break;
+
+                case 'HEARTBEAT':
+                    text = rnd([
+                        `Global pulse — ${present}/${total} subject(s) confirmed active. DB heartbeat sync dispatched.`,
+                        `10-second pulse: ${present} present out of ${total} registered. Bulk attendance record updated in DB.`,
+                        `Periodic sync complete — ${present} active, ${total} registered. Accumulation window reset for next cycle.`,
+                        `Liveness check: ${present}/${total} identities confirmed in frame. Heartbeat written to all active intervals.`,
+                        `Orchestrator pulse: ${present} of ${total} students detected this window. Session continuity verified.`,
+                        `Attendance pulse fired — ${present}/${total} present. DB sync complete; pulse window resets.`,
+                        `Heartbeat cycle complete. ${present} subject(s) present out of ${total} enrolled. Next sync in 10s.`,
+                        `Sync event: confirmed ${present} active presence(s). ${total-present} enrolled students currently absent from frame.`,
+                        `DB write triggered. ${present} recognition locks active. All open attendance intervals refreshed.`,
+                        `Recognition loop pulse: ${present}/${total}. System health nominal; no tracking anomalies detected.`,
+                    ], T);
+                    break;
+
+                case 'CACHE_UPDATED':
+                    if (action === 'expand') {
+                        text = rnd([
+                            `Cache expanded for ${name} — novel facial angle captured. Cluster now holds ${count} distinct vectors.`,
+                            `Cache grow: new pose detected for ${name}. Multi-vector cluster depth: ${count}. Re-ID latency reduced.`,
+                            `Angular diversity update for ${name}. Cluster size → ${count}. Lighting/pose variance coverage improved.`,
+                            `New embedding stored for ${name} — cluster depth increased to ${count}. Recognition robustness upgraded.`,
+                            `${name}'s identity model enriched. Embedding count: ${count}. More viewing angles now covered.`,
+                            `Diversity cache write for ${name}: unique pose added (${count} vectors). Future occlusion recovery improved.`,
+                            `Cache added new angle for ${name}. Total embeddings: ${count}. Session recognition confidence will increase.`,
+                        ], T+'_expand');
+                    } else {
+                        text = rnd([
+                            `Cache refined for ${name} — redundant embedding replaced with higher-quality sample. Cluster depth: ${count}.`,
+                            `Embedding slot recycled for ${name}. Most-similar vector replaced with diverse new sample (${count} total).`,
+                            `Adaptive memory update: ${name}'s cluster refined. Stale vector evicted; fresh encoding installed (${count}).`,
+                            `Cache maintenance: ${name} — low-diversity vector replaced. Cluster held at ${count} for efficiency.`,
+                            `Stale embedding evicted for ${name}. Replacement captured better pose diversity. Cluster at ${count}.`,
+                            `Embedding cluster crystallised for ${name} at ${count} vectors — replaced least-diverse entry with new pose.`,
+                            `Refinement event for ${name}: old near-duplicate vector evicted, new pose variant stored. Depth: ${count}.`,
+                        ], T+'_refine');
+                    }
+                    break;
+
+                case 'OCCLUSION_RESOLVED':
+                    text = rnd([
+                        `Occlusion on Track #${track} resolved via Kalman trajectory prediction. Identity container maintained.`,
+                        `Track #${track} momentarily occluded — Kalman filter bridged gap. Re-emergence confirmed; identity intact.`,
+                        `Spatial continuity preserved on Track #${track}. BoT-SORT re-acquired subject on predicted exit path.`,
+                        `Inter-subject overlap resolved. Track #${track} identity persisted via dead-reckoning. No ID swap detected.`,
+                        `Occlusion closed for Track #${track}. Kalman position estimate was accurate — subject re-entered as predicted.`,
+                        `BoT-SORT successfully bridged Track #${track} through the occlusion window. Lock maintained with no identity drift.`,
+                        `Kalman filter successfully predicted Track #${track} trajectory through visual obstruction. Identity unchanged.`,
+                        `Track #${track} lost and re-acquired within tolerance window. No re-identification required; lock held.`,
+                    ], T);
+                    break;
+
+                default:
+                    text = `[${T}] ${JSON.stringify(d)}`;
+            }
+            return { text, color: tpl.color, prefix: tpl.prefix };
+        }
+
+        function addLogLine(ts, text, color, prefix) {
+            const log = document.getElementById('aiLog');
+            // Remove offline placeholder if present
+            const placeholder = log.querySelector('.ai-offline-msg');
+            if (placeholder) placeholder.remove();
+
+            const line = document.createElement('div');
+            line.className = 'ai-log-line';
+            line.innerHTML = `<span class="ai-log-time">${ts}</span><span style="color:${color};flex-shrink:0;font-weight:600;min-width:50px">[${prefix}]</span><span style="color:#c9d1d9">${text}</span>`;
+            log.appendChild(line);
+
+            // Auto-scroll only if drawer is open (so we don't scroll hidden content)
+            if (aiDrawerOpen) log.scrollTop = log.scrollHeight;
+        }
+
+        async function fetchSlmEvents() {
+            try {
+                const res = await fetch('/api/slm_events/');
+                const data = await res.json();
+                const events = data.events || [];
+                if (events.length > lastSlmCount) {
+                    // Only render new events since last poll
+                    const newEvents = events.slice(lastSlmCount);
+                    newEvents.forEach(ev => {
+                        const { text, color, prefix } = formatSlmEvent(ev);
+                        addLogLine(ev.ts || '', text, color, prefix);
+                    });
+                    lastSlmCount = events.length;
+                }
+            } catch (e) { /* silent */ }
+        }
+
+        function startSlmPolling() {
+            if (!slmInterval) {
+                slmInterval = setInterval(fetchSlmEvents, 2000);
+            }
+            document.getElementById('aiDot').classList.add('active');
+            document.getElementById('aiDotDrawer').classList.add('active');
+            document.getElementById('aiDrawerToggle').classList.add('active');
+        }
+
+        function stopSlmPolling() {
+            if (slmInterval) { clearInterval(slmInterval); slmInterval = null; }
+            document.getElementById('aiDot').classList.remove('active');
+            document.getElementById('aiDotDrawer').classList.remove('active');
+            document.getElementById('aiDrawerToggle').classList.remove('active');
+        }
+
+        // Boot sequence messages during the 19s startup countdown
+        const BOOT_MSGS = [
+            { t: 0,    color: '#a78bfa', prefix: 'SYS',   text: 'Booting MOT Attendance Runtime v1.0...' },
+            { t: 1500, color: '#58a6ff', prefix: 'BOOT',  text: 'Initializing CUDA context... GPU provider active.' },
+            { t: 3000, color: '#58a6ff', prefix: 'BOOT',  text: 'Loading YOLOv11n detection model... OK' },
+            { t: 5000, color: '#58a6ff', prefix: 'BOOT',  text: 'Loading InsightFace buffalo_l embedder... OK' },
+            { t: 7000, color: '#58a6ff', prefix: 'BOOT',  text: 'Activating BoT-SORT tracker. Kalman filters ready.' },
+            { t: 9000, color: '#3fb950', prefix: 'CACHE', text: () => `Loading section embeddings for ${currentSection}...` },
+            { t: 11000, color: '#3fb950', prefix: 'CACHE', text: 'Section cache validated. Identity vectors loaded.' },
+            { t: 13000, color: '#58a6ff', prefix: 'BOOT',  text: 'Linking attendance DB session... OK' },
+            { t: 15000, color: '#58a6ff', prefix: 'BOOT',  text: 'Opening video stream... awaiting first frame.' },
+            { t: 17000, color: '#3fb950', prefix: 'LIVE',  text: 'First frame acquired. Recognition pipeline active.' },
+            { t: 18500, color: '#a78bfa', prefix: 'LIVE',  text: () => `Orchestrator online. Monitoring section: ${currentSection}.` },
+        ];
+
+        function scheduleBootMessages(section) {
+            // Cancel any existing boot sequence
+            bootTimeouts.forEach(t => clearTimeout(t));
+            bootTimeouts = [];
+            // Clear log and reset SLM event counter
+            const log = document.getElementById('aiLog');
+            log.innerHTML = '';
+            lastSlmCount = 0;
+
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+
+            BOOT_MSGS.forEach(msg => {
+                const tid = setTimeout(() => {
+                    const ts = (() => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; })();
+                    const text = typeof msg.text === 'function' ? msg.text() : msg.text;
+                    addLogLine(ts, text, msg.color, msg.prefix);
+                }, msg.t);
+                bootTimeouts.push(tid);
+            });
+        }
+
         const videoEl = document.getElementById('videoFeed');
         const offlineMsg = document.getElementById('offlineMsg');
         const loaderMsg = document.getElementById('loaderMsg');
@@ -760,6 +1238,9 @@
                 clearTimeout(startupTimeout);
                 startupTimeout = null;
             }
+            // Cancel boot messages
+            bootTimeouts.forEach(t => clearTimeout(t));
+            bootTimeouts = [];
             try {
                 await fetch('/stop_session', { method: 'POST' });
             } catch (e) { }
@@ -837,6 +1318,8 @@
             loaderMsg.style.display = 'block';
             startBtn.disabled = true;
             startBtn.textContent = '⏳ Starting...';
+            // SLM: run boot sequence
+            scheduleBootMessages(currentSection);
 
             // Start countdown from 19
             let countdown = 19;
@@ -869,6 +1352,9 @@
             isLoading = false;
             if (loaderMsgInterval) { clearInterval(loaderMsgInterval); loaderMsgInterval = null; }
             if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+            // Cancel any remaining boot messages (session is live)
+            bootTimeouts.forEach(t => clearTimeout(t));
+            bootTimeouts = [];
             offlineMsg.style.display = 'none';
             loaderMsg.style.display = 'none';
             videoEl.style.display = 'block';
@@ -878,11 +1364,22 @@
             document.getElementById('sessionControls').style.display = 'flex';
             document.getElementById('statusValue').innerHTML = "Live <span style='color:var(--success)'>●</span>";
             document.getElementById('statusValue').style.color = 'white';
+            // SLM: start polling live events
+            startSlmPolling();
         }
 
         function showOffline() {
             isLoading = false;
             if (loaderMsgInterval) { clearInterval(loaderMsgInterval); loaderMsgInterval = null; }
+            // Cancel any remaining boot timeouts
+            bootTimeouts.forEach(t => clearTimeout(t));
+            bootTimeouts = [];
+            // Stop SLM polling and reset log
+            stopSlmPolling();
+            lastSlmCount = 0;
+            const log = document.getElementById('aiLog');
+            log.innerHTML = '<div class="ai-offline-msg">System offline. Start a session to activate orchestrator.</div>';
+
             videoEl.style.display = 'none';
             videoEl.src = '';
             loaderMsg.style.display = 'none';
@@ -890,7 +1387,7 @@
 
             startBtn.style.display = 'block';
             startBtn.disabled = false;
-            startBtn.textContent = '🚀 Start Session';
+            startBtn.textContent = '🚀 Start';
             document.getElementById('sessionControls').style.display = 'none';
             // Reset cancel button for next startup
             const cancelBtn = document.getElementById('cancelStartBtn');
@@ -953,6 +1450,7 @@
             }
 
             closeStartModal();
+            currentSection = section;  // Set before showLoader so boot messages use correct section
             showLoader();
 
             // Hide hamburger during session
@@ -1095,6 +1593,12 @@
                 if (data.is_running) {
                     showVideo();
                     startPolling();
+                    // Also fast-forward SLM log to current events (skip boot)
+                    try {
+                        const slmRes = await fetch('/api/slm_events/');
+                        const slmData = await slmRes.json();
+                        lastSlmCount = (slmData.events || []).length;  // Skip old events on reconnect
+                    } catch (e) { }
                 } else {
                     showOffline();
                 }

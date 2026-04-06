@@ -23,6 +23,7 @@ EMBEDDINGS_DIR = os.path.join(PROJECT_ROOT, "data/embeddings")
 CACHE_DIR = os.path.join(PROJECT_ROOT, "data/persistent_cache")
 UPLOADS_DIR = os.path.join(PROJECT_ROOT, "data/uploads")
 MP4_PROGRESS_PATH = os.path.join(PROJECT_ROOT, "data/mp4_progress.json")
+SLM_EVENTS_PATH = os.path.join(PROJECT_ROOT, "data/slm_events.json")
 
 
 def index(request):
@@ -353,6 +354,18 @@ def get_stats(request):
                 pass
     
     return JsonResponse(stats)
+
+
+def slm_events(request):
+    """Returns the latest SLM orchestrator events from the ring buffer file."""
+    try:
+        if os.path.exists(SLM_EVENTS_PATH):
+            with open(SLM_EVENTS_PATH, "r") as f:
+                events = json.load(f)
+            return JsonResponse({"events": events})
+    except Exception:
+        pass
+    return JsonResponse({"events": []})
 
 
 # ============================================

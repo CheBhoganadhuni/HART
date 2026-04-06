@@ -28,6 +28,31 @@ blacklisted_tracks = set() # {track_id} - Ignore for recognition after timeout
 last_seen_time = {} # {student_name: timestamp} - For final flush
 session_cache = {} # {student_name: embedding} - Priority cache for re-identification
 recognition_history = {} # {track_id: [name1, name2, ...]} - Consensus buffer
+
+# SLM Orchestrator Event Buffer
+slm_events = []            # Ring buffer — max 50 events
+SLM_EVENTS_FILE = "data/slm_events.json"
+
+def emit_slm_event(event_type, data=None):
+    """
+    Emits a structured event for the SLM Orchestrator commentary log.
+    Appends to a global ring buffer and writes to slm_events.json for the frontend to poll.
+    Non-blocking: write errors are silently swallowed.
+    """
+    global slm_events
+    event = {
+        "type": event_type,
+        "data": data or {},
+        "ts": time.strftime("%H:%M:%S")
+    }
+    slm_events.append(event)
+    if len(slm_events) > 50:
+        slm_events = slm_events[-50:]
+    try:
+        with open(SLM_EVENTS_FILE, "w") as f:
+            json.dump(slm_events, f)
+    except Exception:
+        pass
 reid_metadata = {} # {track_id: {"source": "cache/db", "time": timestamp}} - For Blue Tag logic
 last_verified_time = {} # {track_id: timestamp} - For Green User Throttling (120s)
 last_shadow_time = {} # {track_id: timestamp} - For Shadow Updates (30s)
@@ -132,25 +157,46 @@ class RecognitionWorker(threading.Thread):
                     # Consensus Logic: Adaptive (1 for Cache, 2 for DB)
                     if track_id not in recognition_history: recognition_history[track_id] = []
                     recognition_history[track_id].append(best_match)
-                    
+
                     # Keep only last 5 matches
                     if len(recognition_history[track_id]) > 5: recognition_history[track_id].pop(0)
 
                     # Check for consensus
                     recent_matches = recognition_history[track_id]
                     match_count = recent_matches.count(best_match)
-                    
+
                     required_consensus = 1 if match_source == 'cache' else 2
-                    
+
                     if match_count >= required_consensus:
+                        is_new_id = track_id not in tracked_identities
                         tracked_identities[track_id] = best_match
-                        
+
                         # Store Re-ID metadata for Blue Tag
                         if track_id not in reid_metadata:
                             reid_metadata[track_id] = {
                                 "source": match_source,
                                 "time": time.time()
                             }
+
+                        # SLM: emit identity lock only for fresh identifications
+                        if is_new_id:
+                            emit_slm_event("IDENTITY_LOCKED", {
+                                "student": self.id_to_name.get(best_match, best_match),
+                                "conf": round(float(max_score) * 100, 1),
+                                "source": match_source,
+                                "track": int(track_id)
+                            })
+                    else:
+                        # Still building consensus — emit once (on first vote for a new track)
+                        if match_count == 1 and track_id not in tracked_identities:
+                            emit_slm_event("CONSENSUS_BUILDING", {
+                                "track": int(track_id),
+                                "student": self.id_to_name.get(best_match, best_match),
+                                "votes": match_count,
+                                "required": required_consensus
+                            })
+
+                    if match_count >= required_consensus:
 
                         # Diversity-Aware Session Cache Update
                         # Quality Gate: det_score > 0.6 AND Size > 60x60
@@ -178,15 +224,29 @@ class RecognitionWorker(threading.Thread):
                                 if len(current_embs) < 5:
                                     current_embs.append(face.embedding)
                                     print(f"[Worker] [Cache] Added {best_match} (Count: {len(current_embs)}) -> New Angle")
+                                    emit_slm_event("CACHE_UPDATED", {
+                                        "student": self.id_to_name.get(best_match, best_match),
+                                        "count": len(current_embs),
+                                        "action": "expand"
+                                    })
                                 else:
                                     # Replace the one most similar to the new one (refining the cluster)
                                     if most_similar_idx != -1:
                                         current_embs[most_similar_idx] = face.embedding
                                         print(f"[Worker] [Cache] Updating {best_match} Idx {most_similar_idx} (Sim: {highest_sim:.2f}) -> Diverse Pose Captured")
+                                        emit_slm_event("CACHE_UPDATED", {
+                                            "student": self.id_to_name.get(best_match, best_match),
+                                            "count": len(current_embs),
+                                            "action": "refine"
+                                        })
                                 
                                 session_cache[best_match] = current_embs
                             else:
                                  print(f"[Worker] [Cache] Skipped {best_match} - Too Similar (Sim: {highest_sim:.2f})")
+                                 emit_slm_event("CACHE_SKIPPED", {
+                                     "student": self.id_to_name.get(best_match, best_match),
+                                     "sim": round(float(highest_sim), 3)
+                                 })
                         else:
                              if max_score > 0.65:
                                   print(f"[Worker] [Cache] Skipped {best_match} - Low Quality (Score: {face.det_score:.2f} Size: {h}x{w})")
@@ -317,6 +377,14 @@ def main():
         print(f"[System] Failed to load section embeddings: {e}")
         return
 
+    # Clear SLM event log for fresh session
+    slm_events.clear()
+    try:
+        with open(SLM_EVENTS_FILE, "w") as f:
+            json.dump([], f)
+    except Exception:
+        pass
+
     # Auto Section Cache Loading (Headstart)
     # Each section has a single persistent cache file: data/section_caches/<section>.pkl
     # It is auto-loaded on start and auto-updated on end — no manual selection needed.
@@ -328,6 +396,7 @@ def main():
                 loaded_cache = pickle.load(f)
                 session_cache.update(loaded_cache)
             print(f"[System] Auto-loaded section cache for '{section_name}': {len(session_cache)} student(s) pre-loaded.")
+            emit_slm_event("CACHE_LOADED", {"section": section_name, "count": len(session_cache)})
         except Exception as e:
             print(f"[System] Warning: Failed to load section cache: {e}")
     else:
@@ -337,6 +406,7 @@ def main():
     db = DBManager()
     session_id = db.start_session(session_name, section_name)
     print(f"[System] DB Session Started (ID: {session_id})")
+    emit_slm_event("SESSION_INIT", {"section": section_name, "students": len(known_embeddings)})
     
     # Load ID -> Name Mapping for Display
     # db.get_section_students returns dict {id: name}
@@ -406,7 +476,8 @@ def main():
                             "active_interval_id": interval_id
                         }
                         print(f"[Interval] {student_id} ENTERED at pulse")
-                
+                        emit_slm_event("INTERVAL_START", {"student": student_name})
+
                 # 2. Detect Present → Absent (close intervals)
                 for student_id, state in list(student_presence_state.items()):
                     if state["is_present"] and student_id not in present_set:
@@ -417,7 +488,11 @@ def main():
                             "active_interval_id": None
                         }
                         print(f"[Interval] {student_id} EXITED at pulse")
-                
+                        emit_slm_event("INTERVAL_END", {"student": id_to_name.get(student_id, student_id)})
+
+                # SLM: heartbeat sync summary
+                emit_slm_event("HEARTBEAT", {"present": len(present_ids), "total": len(id_to_name)})
+
                 # Reset Window
                 seen_in_pulse_window.clear()
                 last_global_pulse = time.time()
@@ -449,7 +524,9 @@ def main():
                         name = tracked_identities.get(tid)
                         
                         if not name:
-                            if tid not in track_start_time: track_start_time[tid] = time.time()
+                            if tid not in track_start_time:
+                                track_start_time[tid] = time.time()
+                                emit_slm_event("NEW_TRACK", {"track": int(tid)})
                             elif time.time() - track_start_time[tid] > 5.0:
                                  # Unknown Throttling: Blacklist after 5s
                                  blacklisted_tracks.add(tid)
@@ -467,6 +544,7 @@ def main():
                                     threading.Thread(target=db.log_unknown_detection, args=(session_id, session_name, tid, img_path), daemon=True).start()
                                     
                                     saved_unknowns.add(tid)
+                                    emit_slm_event("UNKNOWN_DETECTED", {"track": int(tid)})
                         else:
                             # Update last seen time for known students
                             last_seen_time[name] = time.time()

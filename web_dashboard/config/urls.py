@@ -28,6 +28,7 @@ urlpatterns = [
     path('stop_session', views.stop_session, name='stop_session'),
     path('control_session', views.control_session, name='control_session'),
     path('get_stats', views.get_stats, name='get_stats'),
+    path('api/slm_events/', views.slm_events, name='slm_events'),
     path('check-busy', views.check_busy, name='check_busy'),
     # MP4 Processing
     path('process-mp4', views.mp4_page, name='mp4_page'),
