@@ -647,16 +647,6 @@
             </div>
 
             <div class="form-group">
-                <label>Preload Cache (Optional)</label>
-                <select id="cacheSelect">
-                    <option value="">None - Start Fresh</option>
-                    {% for c in caches %}
-                    <option value="{{ c }}">{{ c }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="form-group">
                 <div class="checkbox-group">
                     <input type="checkbox" id="exportCheck" checked>
                     <label style="margin: 0;">Enable Video Export</label>
@@ -946,7 +936,6 @@
 
             const section = document.getElementById('sectionSelect').value;
             const session = document.getElementById('sessionInput').value;
-            const cache = document.getElementById('cacheSelect').value;
             const exportEnabled = document.getElementById('exportCheck').checked;
 
             if (!section) { alert('Please select a section'); return; }
@@ -973,7 +962,7 @@
                 const res = await fetch('/start_session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ section, session, source: '0', cache: cache || null, export: exportEnabled })
+                    body: JSON.stringify({ section, session, source: '0', export: exportEnabled })
                 });
 
                 // Check for system busy (409) - another session started from another tab

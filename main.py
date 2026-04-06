@@ -278,7 +278,7 @@ def main():
     parser.add_argument('--section', type=str, help='Section Name (Required for Modular Loading)')
     parser.add_argument('--source', type=str, default='0', help='Video source (0 for webcam or path)')
     parser.add_argument('--export', action='store_true', help='Enable video export')
-    parser.add_argument('--cache', type=str, help='Path to selective cache pkl to load (Headstart)')
+    # --cache removed: section cache is now auto-managed per section name
     args = parser.parse_args()
 
     # Section Validation
@@ -317,18 +317,21 @@ def main():
         print(f"[System] Failed to load section embeddings: {e}")
         return
 
-    # Selective Cache Loading (Headstart)
-    if args.cache:
-        if os.path.exists(args.cache):
-            try:
-                with open(args.cache, 'rb') as f:
-                    loaded_cache = pickle.load(f)
-                    session_cache.update(loaded_cache)
-                print(f"[System] Headstart enabled: Loaded cache from {args.cache}")
-            except Exception as e:
-                print(f"[System] Failed to load cache: {e}")
-        else:
-            print(f"[System] Warning: Cache file not found at {args.cache}")
+    # Auto Section Cache Loading (Headstart)
+    # Each section has a single persistent cache file: data/section_caches/<section>.pkl
+    # It is auto-loaded on start and auto-updated on end — no manual selection needed.
+    SECTION_CACHE_DIR = "data/section_caches"
+    section_cache_path = os.path.join(SECTION_CACHE_DIR, f"{section_name}.pkl")
+    if os.path.exists(section_cache_path):
+        try:
+            with open(section_cache_path, 'rb') as f:
+                loaded_cache = pickle.load(f)
+                session_cache.update(loaded_cache)
+            print(f"[System] Auto-loaded section cache for '{section_name}': {len(session_cache)} student(s) pre-loaded.")
+        except Exception as e:
+            print(f"[System] Warning: Failed to load section cache: {e}")
+    else:
+        print(f"[System] No section cache yet for '{section_name}' — starting fresh. Cache will be created on session end.")
     
     # Initialize DB Session
     db = DBManager()
@@ -607,17 +610,18 @@ def main():
         cv2.destroyAllWindows()
         print(f"Done. Processed in {((time.time()-session_start)/60):.2f}m")
         
-        # Persistent Cache Export
+        # Auto Section Cache Update
+        # Overwrites the single per-section cache file so the next session starts
+        # with all knowledge accumulated so far — no manual export/import needed.
         try:
-            os.makedirs("data/persistent_cache", exist_ok=True)
-            # Modular Cache Name: cache_[section]_[session]_[timestamp].pkl
-            cache_name = f"cache_{section_name}_{session_name}_{int(time.time())}.pkl"
-            cache_path = os.path.join("data/persistent_cache", cache_name)
-            with open(cache_path, 'wb') as f:
+            SECTION_CACHE_DIR = "data/section_caches"
+            os.makedirs(SECTION_CACHE_DIR, exist_ok=True)
+            section_cache_path = os.path.join(SECTION_CACHE_DIR, f"{section_name}.pkl")
+            with open(section_cache_path, 'wb') as f:
                 pickle.dump(session_cache, f)
-            print(f"[System] Section cache exported to {cache_path}")
+            print(f"[System] Section cache updated: {section_cache_path} ({len(session_cache)} student(s))")
         except Exception as e:
-            print(f"[System] Failed to export cache: {e}")
+            print(f"[System] Failed to update section cache: {e}")
         
         # Final Cleanup: Flush recent heartbeats (Wait... Heartbeats are now Global Pulse)
         # We can do one final pulse here

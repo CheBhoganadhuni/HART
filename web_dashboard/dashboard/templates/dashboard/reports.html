@@ -15,296 +15,380 @@
             --text-secondary: #8b949e;
             --accent: #58a6ff;
             --success: #3fb950;
+            --success-bg: rgba(63, 185, 80, 0.12);
             --warning: #f0883e;
+            --warning-bg: rgba(240, 136, 62, 0.12);
             --danger: #f85149;
+            --danger-bg: rgba(248, 81, 73, 0.12);
+            --neutral-bg: rgba(139, 148, 158, 0.1);
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
         }
 
-        /* Top Bar */
+        /* ── Top Bar ── */
         .topbar {
             background: var(--bg-secondary);
-            padding: 16px 24px;
+            padding: 14px 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-
-        .topbar h1 {
-            font-size: 1.25rem;
-        }
-
+        .topbar h1 { font-size: 1.15rem; }
+        .topbar-right { display: flex; gap: 10px; align-items: center; }
         .back-btn {
             background: var(--card-bg);
             border: 1px solid var(--border);
             color: var(--text-primary);
-            padding: 8px 16px;
+            padding: 7px 14px;
             border-radius: 6px;
             cursor: pointer;
             text-decoration: none;
+            font-size: 0.875rem;
         }
+        .back-btn:hover { background: var(--border); }
 
-        .back-btn:hover {
-            background: var(--border);
-        }
+        /* ── Layout ── */
+        .main-container { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
-        /* Main Container */
-        .main-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 24px;
-        }
-
-        /* Session Header */
+        /* ── Session Header ── */
         .session-header {
             background: var(--card-bg);
             border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
             border: 1px solid var(--border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
         }
-
-        .session-header h2 {
-            margin-bottom: 8px;
-        }
-
+        .session-header h2 { font-size: 1.3rem; margin-bottom: 8px; }
         .session-meta {
             display: flex;
-            gap: 24px;
+            gap: 20px;
             flex-wrap: wrap;
             color: var(--text-secondary);
+            font-size: 0.875rem;
         }
+        .session-meta span strong { color: var(--text-primary); }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+        .status-active { background: var(--success-bg); color: var(--success); border: 1px solid rgba(63,185,80,0.3); }
+        .status-closed { background: var(--neutral-bg); color: var(--text-secondary); border: 1px solid var(--border); }
 
-        /* Stats Cards */
+        /* ── Pass Rate Banner ── */
+        .pass-banner {
+            border-radius: 10px;
+            padding: 14px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.95rem;
+            border: 1px solid;
+        }
+        .pass-banner.good  { background: var(--success-bg); border-color: rgba(63,185,80,0.3); color: var(--success); }
+        .pass-banner.warn  { background: var(--warning-bg); border-color: rgba(240,136,62,0.3); color: var(--warning); }
+        .pass-banner.bad   { background: var(--danger-bg);  border-color: rgba(248,81,73,0.3);  color: var(--danger);  }
+        .pass-banner .big  { font-size: 1.5rem; font-weight: 700; }
+        .pass-banner .sub  { font-size: 0.8rem; opacity: 0.8; margin-top: 1px; }
+
+        /* ── Stats Grid ── */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
         }
-
         .stat-card {
             background: var(--card-bg);
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 10px;
+            padding: 18px 16px;
             border: 1px solid var(--border);
             text-align: center;
         }
+        .stat-value { font-size: 1.9rem; font-weight: 700; margin-bottom: 4px; }
+        .stat-label { color: var(--text-secondary); font-size: 0.8rem; }
+        .c-green  { color: var(--success); }
+        .c-orange { color: var(--warning); }
+        .c-red    { color: var(--danger); }
+        .c-blue   { color: var(--accent); }
 
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .stat-label {
-            color: var(--text-secondary);
-        }
-
-        .stat-success {
-            color: var(--success);
-        }
-
-        .stat-warning {
-            color: var(--warning);
-        }
-
-        .stat-danger {
-            color: var(--danger);
-        }
-
-        /* Timeline Section */
-        .section {
+        /* ── Section Card ── */
+        .section-card {
             background: var(--card-bg);
             border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
             border: 1px solid var(--border);
         }
-
-        .section h3 {
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
             margin-bottom: 16px;
             display: flex;
             align-items: center;
             gap: 8px;
+            color: var(--text-primary);
+        }
+        .section-title .count-pill {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 500;
         }
 
-        /* Timeline Chart */
-        .timeline-container {
-            overflow-x: auto;
+        /* ── Roster Table ── */
+        .roster-table-wrap { overflow-x: auto; }
+        .roster-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .roster-table th {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        .roster-table th:hover { color: var(--text-primary); }
+        .roster-table th.sorted { color: var(--accent); }
+        .roster-table th .sort-icon { margin-left: 4px; opacity: 0.5; }
+        .roster-table th.sorted .sort-icon { opacity: 1; }
+        .roster-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(48, 54, 61, 0.6);
+            vertical-align: middle;
+        }
+        .roster-table tr:last-child td { border-bottom: none; }
+        .roster-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .student-name { font-weight: 500; color: var(--text-primary); }
+        .student-id   { color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px; font-family: monospace; }
+
+        /* Attendance % bar */
+        .att-bar-wrap { display: flex; align-items: center; gap: 10px; min-width: 140px; }
+        .att-bar-bg {
+            flex: 1;
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .att-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+        .att-pct { font-weight: 600; font-size: 0.85rem; min-width: 40px; text-align: right; }
+
+        /* Status badge */
+        .status-tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+        .tag-pass   { background: var(--success-bg); color: var(--success); }
+        .tag-fail   { background: var(--danger-bg);  color: var(--danger); }
+        .tag-active { background: rgba(88,166,255,0.12); color: var(--accent); }
+
+        /* Flags */
+        .flags { display: flex; gap: 4px; flex-wrap: wrap; }
+        .flag {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .flag-late  { background: rgba(240,136,62,0.15); color: var(--warning); border: 1px solid rgba(240,136,62,0.25); }
+        .flag-early { background: rgba(248,81,73,0.12);  color: var(--danger);  border: 1px solid rgba(248,81,73,0.2); }
+        .flag-bunk  { background: rgba(248,81,73,0.12);  color: var(--danger);  border: 1px solid rgba(248,81,73,0.2); }
+
+        /* ── Bunk Alerts ── */
+        .bunk-row td { padding: 12px; border-bottom: 1px solid rgba(48,54,61,0.6); font-size: 0.875rem; }
+        .bunk-row:last-child td { border-bottom: none; }
+        .bunk-row:hover td { background: rgba(255,255,255,0.02); }
+        .bunk-gap-badge {
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid rgba(248,81,73,0.2);
+            padding: 3px 9px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 600;
         }
 
-        .timeline-row {
+        /* ── Timeline (Segment Grid) ── */
+        .tl-time-strip {
+            display: flex;
+            justify-content: space-between;
+            margin-left: 110px;
+            margin-right: 50px;
+            margin-bottom: 5px;
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+        }
+        .tl-row {
             display: flex;
             align-items: center;
-            margin-bottom: 8px;
-            min-height: 36px;
+            gap: 8px;
+            margin-bottom: 5px;
         }
-
-        .timeline-label {
-            width: 150px;
+        .tl-name {
+            width: 100px;
             flex-shrink: 0;
-            font-size: 0.85rem;
+            font-size: 0.78rem;
             color: var(--text-secondary);
-            padding-right: 12px;
             text-align: right;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
-        .timeline-bar-container {
+        .tl-grid {
             flex: 1;
-            height: 24px;
-            background: var(--bg-secondary);
-            border-radius: 4px;
-            position: relative;
-            min-width: 400px;
-        }
-
-        .timeline-block {
-            position: absolute;
-            height: 100%;
-            border-radius: 2px;
-        }
-
-        .timeline-block.present {
-            background: linear-gradient(90deg, var(--success), #2ea043);
-        }
-
-        .timeline-block.absent {
-            background: linear-gradient(90deg, var(--danger), #da3633);
-        }
-
-        /* Legend */
-        .legend {
             display: flex;
-            gap: 24px;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border);
+            gap: 2px;
         }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-        }
-
-        .legend-color {
-            width: 16px;
+        .tl-seg {
+            flex: 1;
             height: 16px;
             border-radius: 3px;
+            cursor: default;
+            transition: opacity 0.12s, transform 0.12s;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+        }
+        .tl-seg:hover { opacity: 0.75; transform: scaleY(1.2); }
+        .tl-seg.present { background: #3fb950; }
+        .tl-seg.absent  { background: #2a2a2a; }   /* subtle dark for absent */
+        .tl-seg.absent-full { background: #f85149; } /* fully absent students: solid red */
+        .tl-pct {
+            width: 42px;
+            flex-shrink: 0;
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding-left: 2px;
         }
 
-        /* Bunk Alert Table */
-        .alert-table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Tooltip */
+        .tt {
+            position: fixed;
+            background: #1c2128;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 12px;
+            font-size: 0.78rem;
+            pointer-events: none;
+            z-index: 9999;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            white-space: nowrap;
+            display: none;
+        }
+        .tt .tt-status { font-weight: 600; margin-bottom: 2px; }
+        .tt .tt-status.present { color: var(--success); }
+        .tt .tt-status.absent  { color: var(--danger); }
+
+        /* Legend */
+        .legend { display: flex; gap: 20px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: var(--text-secondary); }
+        .legend-dot {
+            width: 14px; height: 14px; border-radius: 3px;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
         }
 
-        .alert-table th,
-        .alert-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .alert-table th {
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        .alert-badge {
-            background: var(--danger);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-        }
-
-        /* Export Buttons */
-        .export-buttons {
-            display: flex;
-            gap: 12px;
-            margin-top: 24px;
-        }
-
+        /* ── Export Buttons ── */
+        .export-row { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
         .btn {
-            padding: 12px 24px;
+            padding: 10px 20px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
             font-weight: 500;
-            display: flex;
+            font-size: 0.875rem;
+            display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 7px;
+            transition: opacity 0.15s;
         }
+        .btn:hover { opacity: 0.85; }
+        .btn-primary   { background: var(--accent); color: white; }
+        .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); }
+        .btn-danger    { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,81,73,0.25); }
 
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-
-        .btn-secondary {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-        }
-
-        /* Loading State */
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: var(--text-secondary);
-        }
-
+        /* ── Loading / Empty ── */
+        .loading { text-align: center; padding: 80px 20px; color: var(--text-secondary); }
         .spinner {
-            width: 40px;
-            height: 40px;
+            width: 36px; height: 36px;
             border: 3px solid var(--border);
-            border-top: 3px solid var(--accent);
+            border-top-color: var(--accent);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
             margin: 0 auto 16px;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-msg { color: var(--text-secondary); font-size: 0.875rem; padding: 20px 0; text-align: center; }
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* Print Styles */
+        /* ── Print ── */
         @media print {
-            body {
-                background: white;
-                color: black;
-            }
+            body { background: white; color: black; }
+            .topbar, .export-row { display: none !important; }
 
-            .topbar,
-            .export-buttons {
-                display: none;
+            /* Cards/sections go white */
+            .section-card, .stat-card, .session-header, .pass-banner {
+                border: 1px solid #ccc !important;
+                background: white !important;
             }
+            .roster-table th, .roster-table td { color: black !important; border-color: #ccc !important; }
+            .student-name { color: black !important; }
+            .student-id   { color: #555 !important; }
 
-            .section,
-            .stat-card,
-            .session-header {
-                border: 1px solid #ccc;
-                background: white;
+            /* Timeline segment grid — force colors in print */
+            .tl-seg {
+                print-color-adjust: exact !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+            .tl-seg.present      { background: #3fb950 !important; }
+            .tl-seg.absent       { background: #e0e0e0 !important; }
+            .tl-seg.absent-full  { background: #f85149 !important; }
+            .tl-name  { color: #333 !important; }
+            .tl-pct   { color: #333 !important; }
+            .tl-time-strip { color: #888 !important; }
+            .legend-item { color: #333 !important; }
+            .legend-dot {
+                print-color-adjust: exact !important;
+                -webkit-print-color-adjust: exact !important;
             }
         }
     </style>
@@ -313,231 +397,559 @@
 <body>
     <div class="topbar">
         <h1>📊 Session Report</h1>
-        <a href="/" class="back-btn">← Back to Dashboard</a>
+        <div class="topbar-right">
+            <a href="/reports/" class="back-btn">← All Reports</a>
+            <a href="/" class="back-btn">🏠 Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tt" id="tooltip">
+        <div class="tt-status" id="tt-status"></div>
+        <div id="tt-time"></div>
+        <div id="tt-dur" style="color: var(--text-secondary); margin-top:2px;"></div>
     </div>
 
     <div class="main-container">
-        <!-- Loading State -->
+        <!-- Loading -->
         <div id="loading" class="loading">
             <div class="spinner"></div>
-            <p>Loading report data...</p>
+            <p>Loading report...</p>
         </div>
 
-        <!-- Content (hidden until loaded) -->
-        <div id="content" style="display: none;">
+        <!-- Content -->
+        <div id="content" style="display:none;">
+
             <!-- Session Header -->
             <div class="session-header">
-                <h2 id="sessionName">Session Report</h2>
-                <div class="session-meta">
-                    <span>📁 Section: <strong id="sectionName">-</strong></span>
-                    <span>🕐 Start: <strong id="startTime">-</strong></span>
-                    <span>🕐 End: <strong id="endTime">-</strong></span>
-                    <span>⏱️ Duration: <strong id="duration">-</strong></span>
+                <div>
+                    <h2 id="sessionName">—</h2>
+                    <div class="session-meta" id="sessionMeta"></div>
+                </div>
+                <span class="status-badge" id="statusBadge">—</span>
+            </div>
+
+            <!-- Pass Rate Banner -->
+            <div class="pass-banner" id="passBanner">
+                <div>
+                    <div class="big" id="bannerMain">—</div>
+                    <div class="sub" id="bannerSub">—</div>
                 </div>
             </div>
 
-            <!-- Stats Cards -->
+            <!-- Stats Row -->
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value" id="totalStudents">0</div>
+                    <div class="stat-value" id="statTotal">0</div>
                     <div class="stat-label">Total Students</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value stat-success" id="avgAttendance">0%</div>
+                    <div class="stat-value c-green" id="statPassed">0</div>
+                    <div class="stat-label">Passed ≥75%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value c-red" id="statFailed">0</div>
+                    <div class="stat-label">Below 75%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value c-blue" id="statAvg">0%</div>
                     <div class="stat-label">Avg Attendance</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value stat-warning" id="totalAbsent">0</div>
-                    <div class="stat-label">Absent (min)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="sessionDuration">0</div>
-                    <div class="stat-label">Minutes</div>
+                    <div class="stat-value c-orange" id="statDuration">0</div>
+                    <div class="stat-label">Session (min)</div>
                 </div>
             </div>
 
-            <!-- Timeline Section -->
-            <div class="section">
-                <h3>📅 Attendance Timeline</h3>
-                <div class="timeline-container" id="timelineContainer">
-                    <!-- Timeline rows will be added here -->
+            <!-- Bunk Alerts (shows only if any) -->
+            <div class="section-card" id="bunkSection" style="display:none;">
+                <div class="section-title">
+                    ⚠️ Bunk Alerts
+                    <span class="count-pill" id="bunkCount">0</span>
+                    <span style="font-size:0.78rem; font-weight:400; color:var(--text-secondary); margin-left:4px;">
+                        — students with a single absence gap ≥ 10 min
+                    </span>
                 </div>
-                <div class="legend">
-                    <div class="legend-item">
-                        <div class="legend-color" style="background: var(--success);"></div>
-                        <span>Present</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background: var(--danger);"></div>
-                        <span>Absent</span>
-                    </div>
+                <div class="roster-table-wrap">
+                    <table class="roster-table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Longest Gap</th>
+                                <th>Total Absent</th>
+                                <th>Attendance %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bunkBody"></tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- Bunk Alerts Section -->
-            <div class="section" id="bunkSection" style="display: none;">
-                <h3>⚠️ Bunk Alerts (≥15 min absence)</h3>
-                <table class="alert-table">
-                    <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Student ID</th>
-                            <th>Bunk Time</th>
-                            <th>Attendance</th>
-                        </tr>
-                    </thead>
-                    <tbody id="bunkTableBody">
-                    </tbody>
-                </table>
+            <!-- Student Roster -->
+            <div class="section-card">
+                <div class="section-title">
+                    👥 Student Roster
+                    <span class="count-pill" id="rosterCount">0</span>
+                </div>
+                <div class="roster-table-wrap">
+                    <table class="roster-table" id="rosterTable">
+                        <thead>
+                            <tr>
+                                <th data-col="name" onclick="sortTable('name')">
+                                    Student <span class="sort-icon">↕</span>
+                                </th>
+                                <th data-col="present" onclick="sortTable('present')" style="text-align:right;">
+                                    Present (min) <span class="sort-icon">↕</span>
+                                </th>
+                                <th data-col="absent" onclick="sortTable('absent')" style="text-align:right;">
+                                    Absent (min) <span class="sort-icon">↕</span>
+                                </th>
+                                <th data-col="pct" onclick="sortTable('pct')">
+                                    Attendance <span class="sort-icon">↕</span>
+                                </th>
+                                <th data-col="status" onclick="sortTable('status')">
+                                    Status <span class="sort-icon">↕</span>
+                                </th>
+                                <th>Flags</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rosterBody"></tbody>
+                    </table>
+                </div>
             </div>
 
-            <!-- Export Buttons -->
-            <div class="export-buttons">
+            <!-- Attendance Timeline -->
+            <div class="section-card">
+                <div class="section-title">📅 Attendance Timeline</div>
+                <div id="timelineContainer"></div>
+            </div>
+
+            <!-- Export -->
+            <div class="export-row">
                 <button class="btn btn-primary" onclick="exportCSV()">📥 Export CSV</button>
                 <button class="btn btn-secondary" onclick="window.print()">🖨️ Print Report</button>
+                <button class="btn btn-danger" id="exportAbsent" onclick="exportAbsentCSV()">
+                    📋 Export Absent Students
+                </button>
             </div>
-        </div>
-    </div>
+
+        </div><!-- /content -->
+    </div><!-- /main-container -->
 
     <script>
         const SESSION_ID = {{ session_id }};
-        let reportData = null;
+        const PASS_THRESHOLD = 75;
+        const BUNK_THRESHOLD = 10;   // minutes — single gap considered a bunk
+        const LATE_THRESHOLD = 5;    // minutes after session start = "late arrival"
+        const EARLY_THRESHOLD = 5;   // minutes before session end = "left early"
 
+        let reportData = null;
+        let sortCol = 'pct';
+        let sortAsc = false; // default: descending attendance %
+
+        // ── Load ──────────────────────────────────────────
         async function loadReport() {
             try {
                 const res = await fetch(`/api/reports/${SESSION_ID}/`);
-                if (!res.ok) throw new Error('Failed to load report');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 reportData = await res.json();
+                if (reportData.error) throw new Error(reportData.error);
 
-                if (reportData.error) {
-                    document.getElementById('loading').innerHTML = `<p style="color: var(--danger);">Error: ${reportData.error}</p>`;
-                    return;
-                }
-
-                renderReport(reportData);
+                renderAll(reportData);
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
             } catch (e) {
-                document.getElementById('loading').innerHTML = `<p style="color: var(--danger);">Error loading report: ${e.message}</p>`;
+                document.getElementById('loading').innerHTML =
+                    `<p style="color:var(--danger);">Error loading report: ${e.message}</p>`;
             }
         }
 
-        function renderReport(data) {
-            const meta = data.session_meta;
-            const stats = data.class_stats;
+        // ── Main Render ───────────────────────────────────
+        function renderAll(data) {
+            const meta   = data.session_meta;
+            const stats  = data.class_stats;
+            const students = data.students;
 
-            // Session Header
-            document.getElementById('sessionName').textContent = `📊 ${meta.session_name}`;
-            document.getElementById('sectionName').textContent = meta.section;
-            document.getElementById('startTime').textContent = formatTime(meta.start_time);
-            document.getElementById('endTime').textContent = formatTime(meta.end_time);
-            document.getElementById('duration').textContent = `${meta.duration_minutes.toFixed(1)} min`;
+            // Augment student data
+            const sessionStartMs = new Date(meta.start_time).getTime();
+            const sessionEndMs   = new Date(meta.end_time || Date.now()).getTime();
+            const sessionDurMin  = meta.duration_minutes;
 
-            // Stats
-            document.getElementById('totalStudents').textContent = stats.total_students;
-            document.getElementById('avgAttendance').textContent = `${stats.avg_attendance_percent}%`;
-            document.getElementById('totalAbsent').textContent = stats.total_absent_minutes || 0;
-            document.getElementById('sessionDuration').textContent = meta.duration_minutes.toFixed(0);
-
-            // Timeline
-            renderTimeline(data.students, meta);
-
-            // Bunk Alerts Table
-            renderBunkAlerts(data.students.filter(s => s.bunk_alert));
-        }
-
-        function formatTime(isoStr) {
-            if (!isoStr) return '-';
-            const d = new Date(isoStr);
-            return d.toLocaleString('en-IN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                day: '2-digit',
-                month: 'short'
-            });
-        }
-
-        function renderTimeline(students, meta) {
-            const container = document.getElementById('timelineContainer');
-            container.innerHTML = '';
-
-            const sessionStart = new Date(meta.start_time).getTime();
-            const sessionEnd = new Date(meta.end_time || Date.now()).getTime();
-            const totalDuration = sessionEnd - sessionStart;
-
-            students.forEach(student => {
-                const row = document.createElement('div');
-                row.className = 'timeline-row';
-
-                const label = document.createElement('div');
-                label.className = 'timeline-label';
-                label.textContent = student.student_name;
-                label.title = `${student.student_id} - ${student.attendance_percent}%`;
-
-                const barContainer = document.createElement('div');
-                barContainer.className = 'timeline-bar-container';
-
-                student.intervals.forEach(interval => {
-                    const start = new Date(interval.start).getTime();
-                    const end = new Date(interval.end || sessionEnd).getTime();
-
-                    const left = ((start - sessionStart) / totalDuration) * 100;
-                    const width = ((end - start) / totalDuration) * 100;
-
-                    if (width > 0.1) {  // Only render visible blocks
-                        const block = document.createElement('div');
-                        block.className = `timeline-block ${interval.status}`;
-                        block.style.left = `${Math.max(0, left)}%`;
-                        block.style.width = `${Math.min(100 - left, width)}%`;
-                        barContainer.appendChild(block);
+            students.forEach(s => {
+                // Bunk: largest single absent gap
+                s._maxGap = 0;
+                s.intervals.forEach(iv => {
+                    if (iv.status === 'absent' && iv.gap_minutes) {
+                        s._maxGap = Math.max(s._maxGap, iv.gap_minutes);
                     }
                 });
+                s._hasBunk = s._maxGap >= BUNK_THRESHOLD;
 
-                row.appendChild(label);
-                row.appendChild(barContainer);
-                container.appendChild(row);
+                // Late arrival: first present interval starts > LATE_THRESHOLD after session start
+                const presentIvs = s.intervals.filter(iv => iv.status === 'present' && iv.start);
+                s._late = false;
+                s._earlyExit = false;
+                if (presentIvs.length > 0) {
+                    const firstEntry = new Date(presentIvs[0].start).getTime();
+                    const lateMins = (firstEntry - sessionStartMs) / 60000;
+                    if (lateMins > LATE_THRESHOLD) s._late = true;
+
+                    // Early exit: last present interval ends > EARLY_THRESHOLD before session end
+                    // Only flag for closed sessions
+                    if (meta.status === 'CLOSED') {
+                        const lastIv = presentIvs[presentIvs.length - 1];
+                        if (lastIv.end) {
+                            const lastExit = new Date(lastIv.end).getTime();
+                            const earlyMins = (sessionEndMs - lastExit) / 60000;
+                            if (earlyMins > EARLY_THRESHOLD) s._earlyExit = true;
+                        }
+                    }
+                }
             });
+
+            // Header
+            document.getElementById('sessionName').textContent = meta.session_name;
+            document.getElementById('sessionMeta').innerHTML = `
+                <span>📁 Section: <strong>${meta.section}</strong></span>
+                <span>🕐 Start: <strong>${fmtTime(meta.start_time)}</strong></span>
+                <span>🕐 End: <strong>${meta.end_time ? fmtTime(meta.end_time) : '—'}</strong></span>
+                <span>⏱ Duration: <strong>${sessionDurMin.toFixed(1)} min</strong></span>
+            `;
+            const badgeEl = document.getElementById('statusBadge');
+            if (meta.status === 'ACTIVE') {
+                badgeEl.textContent = '● Active';
+                badgeEl.className = 'status-badge status-active';
+            } else {
+                badgeEl.textContent = 'Closed';
+                badgeEl.className = 'status-badge status-closed';
+            }
+
+            // Pass/Fail counts
+            const passed = students.filter(s => s.attendance_percent >= PASS_THRESHOLD).length;
+            const failed = students.length - passed;
+
+            // Stats
+            document.getElementById('statTotal').textContent    = stats.total_students;
+            document.getElementById('statPassed').textContent   = passed;
+            document.getElementById('statFailed').textContent   = failed;
+            document.getElementById('statAvg').textContent      = `${stats.avg_attendance_percent}%`;
+            document.getElementById('statDuration').textContent = sessionDurMin.toFixed(0);
+            document.getElementById('rosterCount').textContent  = students.length;
+
+            // Pass Banner
+            const pct = stats.total_students > 0
+                ? Math.round((passed / stats.total_students) * 100) : 0;
+            const banner = document.getElementById('passBanner');
+            document.getElementById('bannerMain').textContent =
+                `${passed} / ${stats.total_students} students passed (≥${PASS_THRESHOLD}%)`;
+            document.getElementById('bannerSub').textContent =
+                `${pct}% of the class met the attendance threshold this session`;
+            banner.className = 'pass-banner ' + (pct >= 75 ? 'good' : pct >= 50 ? 'warn' : 'bad');
+
+            // Bunk Alerts
+            renderBunkAlerts(students);
+
+            // Roster
+            renderRoster(students);
+
+            // Timeline
+            renderTimeline(students, meta);
         }
 
-        function renderBunkAlerts(bunkStudents) {
-            if (bunkStudents.length === 0) return;
+        // ── Bunk Alerts ──────────────────────────────────
+        function renderBunkAlerts(students) {
+            const bunkers = students.filter(s => s._hasBunk)
+                .sort((a, b) => b._maxGap - a._maxGap);
+
+            if (bunkers.length === 0) return;
 
             document.getElementById('bunkSection').style.display = 'block';
-            const tbody = document.getElementById('bunkTableBody');
-            tbody.innerHTML = '';
+            document.getElementById('bunkCount').textContent = bunkers.length;
 
-            bunkStudents.forEach(student => {
+            const tbody = document.getElementById('bunkBody');
+            tbody.innerHTML = '';
+            bunkers.forEach(s => {
                 const tr = document.createElement('tr');
+                tr.className = 'bunk-row';
                 tr.innerHTML = `
-                    <td>${student.student_name}</td>
-                    <td>${student.student_id}</td>
-                    <td><span class="alert-badge">${student.bunk_minutes} min</span></td>
-                    <td>${student.attendance_percent}%</td>
+                    <td>
+                        <div class="student-name">${esc(s.student_name)}</div>
+                        <div class="student-id">${esc(s.student_id)}</div>
+                    </td>
+                    <td><span class="bunk-gap-badge">⏱ ${s._maxGap.toFixed(0)} min gap</span></td>
+                    <td style="color:var(--warning);">${s.absent_minutes} min</td>
+                    <td>${attBar(s.attendance_percent)}</td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
-        function exportCSV() {
-            if (!reportData) return;
+        // ── Roster Table ─────────────────────────────────
+        let _rosterData = [];
+        function renderRoster(students) {
+            _rosterData = students;
+            drawRoster();
+        }
 
-            let csv = 'Student Name,Student ID,Present (min),Absent (min),Attendance %\n';
-            reportData.students.forEach(s => {
-                csv += `"${s.student_name}","${s.student_id}",${s.present_minutes},${s.absent_minutes},${s.attendance_percent}\n`;
+        function drawRoster() {
+            const sorted = [..._rosterData].sort((a, b) => {
+                let va, vb;
+                if (sortCol === 'name')    { va = a.student_name; vb = b.student_name; }
+                if (sortCol === 'present') { va = a.present_minutes; vb = b.present_minutes; }
+                if (sortCol === 'absent')  { va = a.absent_minutes; vb = b.absent_minutes; }
+                if (sortCol === 'pct')     { va = a.attendance_percent; vb = b.attendance_percent; }
+                if (sortCol === 'status')  { va = a.attendance_percent >= PASS_THRESHOLD ? 1 : 0;
+                                             vb = b.attendance_percent >= PASS_THRESHOLD ? 1 : 0; }
+                if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+                return sortAsc ? va - vb : vb - va;
             });
 
+            // Update header icons
+            document.querySelectorAll('.roster-table th[data-col]').forEach(th => {
+                const col = th.dataset.col;
+                const icon = th.querySelector('.sort-icon');
+                th.classList.toggle('sorted', col === sortCol);
+                if (icon) icon.textContent = col === sortCol ? (sortAsc ? '↑' : '↓') : '↕';
+            });
+
+            const tbody = document.getElementById('rosterBody');
+            tbody.innerHTML = '';
+            sorted.forEach(s => {
+                const pass = s.attendance_percent >= PASS_THRESHOLD;
+                const flags = [];
+                if (s._late)      flags.push(`<span class="flag flag-late">🕐 Late</span>`);
+                if (s._earlyExit) flags.push(`<span class="flag flag-early">🚪 Left Early</span>`);
+                if (s._hasBunk)   flags.push(`<span class="flag flag-bunk">⚠ Bunk</span>`);
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>
+                        <div class="student-name">${esc(s.student_name)}</div>
+                        <div class="student-id">${esc(s.student_id)}</div>
+                    </td>
+                    <td style="text-align:right; color:var(--success);">${s.present_minutes}</td>
+                    <td style="text-align:right; color:${s.absent_minutes > 0 ? 'var(--warning)' : 'var(--text-secondary)'};">
+                        ${s.absent_minutes}
+                    </td>
+                    <td>${attBar(s.attendance_percent)}</td>
+                    <td>
+                        <span class="status-tag ${pass ? 'tag-pass' : 'tag-fail'}">
+                            ${pass ? '✓ Pass' : '✗ Fail'}
+                        </span>
+                    </td>
+                    <td><div class="flags">${flags.join('') || '<span style="color:var(--text-secondary);font-size:0.78rem;">—</span>'}</div></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function sortTable(col) {
+            if (sortCol === col) { sortAsc = !sortAsc; }
+            else { sortCol = col; sortAsc = col === 'name'; }
+            drawRoster();
+        }
+
+        function attBar(pct) {
+            const color = pct >= 75 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--danger)';
+            return `
+                <div class="att-bar-wrap">
+                    <div class="att-bar-bg">
+                        <div class="att-bar-fill" style="width:${pct}%; background:${color};"></div>
+                    </div>
+                    <span class="att-pct" style="color:${color};">${pct}%</span>
+                </div>`;
+        }
+
+        // ── Timeline (Segment Grid) ───────────────────────
+        // Session is divided into SEGMENTS equal time slots.
+        // Each slot gets a colored square: green=present, dark=absent gap, red=fully absent.
+        // No overflow, no scrollbar, prints perfectly.
+        function renderTimeline(students, meta) {
+            const sessionStartMs = new Date(meta.start_time).getTime();
+            const sessionEndMs   = new Date(meta.end_time || Date.now()).getTime();
+            const totalMs        = sessionEndMs - sessionStartMs;
+            const SEGMENTS       = 40;
+            const segMs          = totalMs / SEGMENTS;
+            const segMinStr      = segMs < 60000
+                ? `${(segMs / 1000).toFixed(0)}s`
+                : `${(segMs / 60000).toFixed(1)}m`;
+
+            const wrap = document.getElementById('timelineContainer');
+            wrap.innerHTML = '';
+
+            // Time strip (start → end labels)
+            const timeStrip = document.createElement('div');
+            timeStrip.className = 'tl-time-strip';
+            timeStrip.innerHTML = `
+                <span>${fmtTimeFull(meta.start_time)}</span>
+                <span style="color:var(--text-secondary);font-size:0.6rem;">${SEGMENTS} segments · ${segMinStr} each</span>
+                <span>${fmtTimeFull(meta.end_time || new Date().toISOString())}</span>
+            `;
+            wrap.appendChild(timeStrip);
+
+            // Sort by attendance desc
+            const sorted = [...students].sort((a, b) => b.attendance_percent - a.attendance_percent);
+            const isFullyAbsent = s => s.present_minutes === 0;
+
+            sorted.forEach(student => {
+                const row = document.createElement('div');
+                row.className = 'tl-row';
+
+                // Name
+                const nameEl = document.createElement('div');
+                nameEl.className = 'tl-name';
+                nameEl.textContent = student.student_name.split(' ')[0];
+                nameEl.title = `${student.student_name} · ${student.student_id} · ${student.attendance_percent}%`;
+
+                // Segment grid
+                const grid = document.createElement('div');
+                grid.className = 'tl-grid';
+
+                const fullyAbsent = isFullyAbsent(student);
+
+                for (let i = 0; i < SEGMENTS; i++) {
+                    const segStart = sessionStartMs + i * segMs;
+                    const segEnd   = segStart + segMs;
+
+                    // Check if any present interval overlaps this segment
+                    let isPresent = false;
+                    for (const iv of student.intervals) {
+                        if (iv.status !== 'present') continue;
+                        const ivStart = new Date(iv.start).getTime();
+                        const ivEnd   = iv.end ? new Date(iv.end).getTime() : sessionEndMs;
+                        if (ivStart < segEnd && ivEnd > segStart) { isPresent = true; break; }
+                    }
+
+                    const seg = document.createElement('div');
+                    if (isPresent) {
+                        seg.className = 'tl-seg present';
+                    } else if (fullyAbsent) {
+                        seg.className = 'tl-seg absent-full';  // solid red for fully absent
+                    } else {
+                        seg.className = 'tl-seg absent';       // dark gray for gap in partial attendance
+                    }
+
+                    // Tooltip on hover
+                    const fakeIv = {
+                        status: isPresent ? 'present' : 'absent',
+                        start: new Date(segStart).toISOString(),
+                        end:   new Date(segEnd).toISOString()
+                    };
+                    seg.addEventListener('mouseenter', e => showTT(e, fakeIv, segMs / 60000));
+                    seg.addEventListener('mousemove',  e => moveTT(e));
+                    seg.addEventListener('mouseleave', hideTT);
+
+                    grid.appendChild(seg);
+                }
+
+                // % label
+                const pctEl = document.createElement('div');
+                pctEl.className = 'tl-pct';
+                const pctColor = student.attendance_percent >= 75 ? '#3fb950'
+                               : student.attendance_percent >= 50 ? '#f0883e' : '#f85149';
+                pctEl.style.color = pctColor;
+                pctEl.textContent = `${student.attendance_percent}%`;
+
+                row.appendChild(nameEl);
+                row.appendChild(grid);
+                row.appendChild(pctEl);
+                wrap.appendChild(row);
+            });
+
+            // Legend
+            const legend = document.createElement('div');
+            legend.className = 'legend';
+            legend.innerHTML = `
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#3fb950;"></div>Present
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#f85149;"></div>Fully Absent
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background:#2a2a2a; border:1px solid #444;"></div>Gap (partial attendance)
+                </div>
+                <div class="legend-item" style="margin-left:auto; font-size:0.72rem; color:var(--text-secondary);">
+                    Hover segments for exact times
+                </div>
+            `;
+            wrap.appendChild(legend);
+        }
+
+        // ── Tooltip ──────────────────────────────────────
+        const ttEl       = document.getElementById('tooltip');
+        const ttStatus   = document.getElementById('tt-status');
+        const ttTime     = document.getElementById('tt-time');
+        const ttDur      = document.getElementById('tt-dur');
+
+        function showTT(e, iv, durMin) {
+            ttStatus.textContent  = iv.status === 'present' ? '● Present' : '● Absent';
+            ttStatus.className    = `tt-status ${iv.status}`;
+            const startStr = iv.start ? fmtTimeFull(iv.start) : '—';
+            const endStr   = iv.end   ? fmtTimeFull(iv.end)   : 'ongoing';
+            ttTime.textContent = `${startStr} → ${endStr}`;
+            ttDur.textContent  = `${durMin.toFixed(1)} min`;
+            ttEl.style.display = 'block';
+            moveTT(e);
+        }
+        function moveTT(e) {
+            ttEl.style.left = `${e.clientX + 14}px`;
+            ttEl.style.top  = `${e.clientY - 10}px`;
+        }
+        function hideTT() { ttEl.style.display = 'none'; }
+
+        // ── CSV Export ───────────────────────────────────
+        function exportCSV() {
+            if (!reportData) return;
+            const meta = reportData.session_meta;
+            let csv = 'Student Name,Student ID,Present (min),Absent (min),Attendance %,Status,Late Arrival,Left Early,Max Bunk Gap (min)\n';
+            reportData.students.forEach(s => {
+                const pass = s.attendance_percent >= PASS_THRESHOLD ? 'Pass' : 'Fail';
+                csv += `"${s.student_name}","${s.student_id}",${s.present_minutes},${s.absent_minutes},${s.attendance_percent},${pass},${s._late ? 'Yes' : 'No'},${s._earlyExit ? 'Yes' : 'No'},${s._maxGap.toFixed(0)}\n`;
+            });
+            downloadCSV(csv, `report_${meta.session_name}.csv`);
+        }
+
+        function exportAbsentCSV() {
+            if (!reportData) return;
+            const meta = reportData.session_meta;
+            const absent = reportData.students.filter(s => s.attendance_percent < PASS_THRESHOLD);
+            let csv = 'Student Name,Student ID,Attendance %,Absent (min)\n';
+            absent.forEach(s => {
+                csv += `"${s.student_name}","${s.student_id}",${s.attendance_percent},${s.absent_minutes}\n`;
+            });
+            downloadCSV(csv, `absent_${meta.session_name}.csv`);
+        }
+
+        function downloadCSV(csv, filename) {
             const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `report_${reportData.session_meta.session_name}.csv`;
-            a.click();
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
             URL.revokeObjectURL(url);
         }
 
-        // Load on page ready
+        // ── Utils ─────────────────────────────────────────
+        function fmtTime(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleString('en-IN', {
+                day: '2-digit', month: 'short',
+                hour: '2-digit', minute: '2-digit'
+            });
+        }
+        function fmtTimeFull(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleTimeString('en-IN', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+        }
+        function esc(str) {
+            return String(str || '')
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
         loadReport();
     </script>
 </body>
-
 </html>

@@ -53,7 +53,7 @@ C. RUN ATTENDANCE SESSION
    --session <NAME> : Name the session (Default: Session_<timestamp>).
    --source <PATH>  : Video file path or '0' for Webcam (Default: 0).
    --export         : Save session video to `data/exports/`.
-   --cache <PATH>   : Load a previous session cache for faster re-ID.
+   (Cache is now auto-managed: data/section_caches/<section>.pkl is loaded and updated automatically.)
 
    Example:
    python3 main.py --section CSE_A --export

@@ -34,19 +34,6 @@ def index(request):
             if f.endswith(".pkl"):
                 sections.append(f.replace(".pkl", ""))
     
-    # Get available cache files sorted by modification time (newest first)
-    caches = []
-    if os.path.exists(CACHE_DIR):
-        cache_files = []
-        for f in os.listdir(CACHE_DIR):
-            if f.startswith("cache_") and f.endswith(".pkl"):
-                full_path = os.path.join(CACHE_DIR, f)
-                mtime = os.path.getmtime(full_path)
-                cache_files.append((f, mtime))
-        # Sort by modification time descending (newest first)
-        cache_files.sort(key=lambda x: x[1], reverse=True)
-        caches = [f[0] for f in cache_files]
-    
     # Check if any processing is running
     process_running = CV_PROCESS is not None and CV_PROCESS.poll() is None
     is_mp4_running = PROCESS_TYPE == "mp4" and process_running
@@ -54,7 +41,6 @@ def index(request):
     
     context = {
         "sections": sorted(sections),
-        "caches": caches,  # All cache files, sorted by date
         "is_running": process_running,
         "is_busy": process_running,  # Block for ANY session (webcam OR MP4)
         "busy_type": "webcam" if is_webcam_running else ("MP4" if is_mp4_running else None),
@@ -142,8 +128,8 @@ def start_session(request):
     section = data.get("section")
     session_name = data.get("session", "").strip()
     source = data.get("source", "0").strip()
-    cache_file = data.get("cache", "")  # Optional cache preload
     export_enabled = data.get("export", True)
+    # cache_file removed: section cache is now auto-managed by main.py
     
     if not section:
         return JsonResponse({"error": "Section is required"}, status=400)
@@ -165,14 +151,9 @@ def start_session(request):
     
     if export_enabled:
         cmd.append("--export")
-    
+
     if session_name:
         cmd.extend(["--session", session_name])
-    
-    if cache_file:
-        cache_path = os.path.join(CACHE_DIR, cache_file)
-        if os.path.exists(cache_path):
-            cmd.extend(["--cache", cache_path])
     
     try:
         CV_PROCESS = subprocess.Popen(cmd, cwd=PROJECT_ROOT)
@@ -795,7 +776,7 @@ def session_report(request, session_id):
         students_data = {}
         for row in interval_rows:
             student_id, student_name, entry_str, exit_str, duration = row
-            
+
             if student_id not in students_data:
                 students_data[student_id] = {
                     "student_id": student_id,
@@ -803,10 +784,10 @@ def session_report(request, session_id):
                     "intervals": [],
                     "present_minutes": 0.0
                 }
-            
+
             entry_time = parse_time(entry_str)
             exit_time = parse_time(exit_str)
-            
+
             students_data[student_id]["intervals"].append({
                 "start": entry_str,
                 "end": exit_str,
@@ -815,19 +796,30 @@ def session_report(request, session_id):
                 "exit": exit_time
             })
             students_data[student_id]["present_minutes"] += duration or 0.0
-        
-        # 4. Derive absent intervals (gaps) for each student - NO HARDCODED THRESHOLD
-        # Report all gaps as raw data; let faculty interpret
-        
+
+        # 4. Derive full interval timeline per student
+        #    Includes: initial absent gap, inter-present gaps, trailing absent gap
+        #    absent_minutes = session_duration - present_minutes (accurate, covers all gaps)
+
         results = []
         for student_id, data in students_data.items():
             intervals = data["intervals"]
             all_intervals = []
-            absent_minutes = 0.0
-            
+
             # Sort by entry time
             intervals.sort(key=lambda x: x["entry"] or datetime.min)
-            
+
+            # Initial absent gap: session start → first present interval
+            if intervals and intervals[0]["entry"]:
+                initial_gap = (intervals[0]["entry"] - session_start).total_seconds() / 60.0
+                if initial_gap > 0.05:
+                    all_intervals.append({
+                        "start": start_time_str,
+                        "end": intervals[0]["start"],
+                        "status": "absent",
+                        "gap_minutes": round(initial_gap, 1)
+                    })
+
             for i, interval in enumerate(intervals):
                 # Add present interval
                 all_intervals.append({
@@ -835,27 +827,38 @@ def session_report(request, session_id):
                     "end": interval["end"],
                     "status": "present"
                 })
-                
-                # Check for gap to next interval
+
+                # Gap between this and the next interval
                 if i < len(intervals) - 1:
                     current_exit = interval["exit"]
-                    next_entry = intervals[i+1]["entry"]
-                    
+                    next_entry = intervals[i + 1]["entry"]
                     if current_exit and next_entry:
                         gap_minutes = (next_entry - current_exit).total_seconds() / 60.0
-                        
-                        if gap_minutes > 0.5:  # Add any meaningful gap
+                        if gap_minutes > 0.05:
                             all_intervals.append({
                                 "start": interval["end"],
-                                "end": intervals[i+1]["start"],
+                                "end": intervals[i + 1]["start"],
                                 "status": "absent",
                                 "gap_minutes": round(gap_minutes, 1)
                             })
-                            absent_minutes += gap_minutes
-            
-            # Calculate attendance percentage
+
+            # Trailing absent gap: last present interval → session end
+            # Only add if session is closed and the student left before the end
+            if intervals and intervals[-1]["exit"] and status == 'CLOSED':
+                trailing_gap = (session_end - intervals[-1]["exit"]).total_seconds() / 60.0
+                if trailing_gap > 0.05:
+                    all_intervals.append({
+                        "start": intervals[-1]["end"],
+                        "end": end_time_str,
+                        "status": "absent",
+                        "gap_minutes": round(trailing_gap, 1)
+                    })
+
+            # Absent minutes = total session time minus present time
+            # This is the authoritative value — covers ALL gaps (initial, between, trailing)
+            absent_minutes = max(0.0, session_duration - data["present_minutes"])
             present_pct = (data["present_minutes"] / session_duration * 100) if session_duration > 0 else 0
-            
+
             results.append({
                 "student_id": student_id,
                 "student_name": data["student_name"],
@@ -864,8 +867,35 @@ def session_report(request, session_id):
                 "attendance_percent": round(present_pct, 1),
                 "intervals": all_intervals
             })
-        
-        # 5. Compute class-level stats
+
+        # 5. Add fully absent students (registered in session but never detected)
+        #    These exist in session_attendance but have zero rows in attendance_intervals
+        cursor.execute('''
+            SELECT sa.student_id, s.name
+            FROM session_attendance sa
+            LEFT JOIN students s ON sa.student_id = s.student_id
+            WHERE sa.session_id = ?
+        ''', (session_id,))
+        all_session_students = cursor.fetchall()
+
+        for s_id, s_name in all_session_students:
+            if s_id not in students_data:
+                # Fully absent: one big absent block covering the whole session
+                results.append({
+                    "student_id": s_id,
+                    "student_name": s_name or s_id,
+                    "present_minutes": 0.0,
+                    "absent_minutes": round(session_duration, 1),
+                    "attendance_percent": 0.0,
+                    "intervals": [{
+                        "start": start_time_str,
+                        "end": end_time_str,
+                        "status": "absent",
+                        "gap_minutes": round(session_duration, 1)
+                    }]
+                })
+
+        # 6. Compute class-level stats (now over ALL registered students)
         total_students = len(results)
         avg_attendance = sum(s["attendance_percent"] for s in results) / total_students if total_students > 0 else 0
         total_absent = sum(s["absent_minutes"] for s in results)
