@@ -12,10 +12,11 @@ This is a High-Performance, Modular Face Recognition Attendance System.
 It uses modern AI (YOLOv11 + InsightFace) for real-time tracking and recognition.
 Key Features:
 - Geometric 3D Pose Registration (Anti-Spoofing & Quality Check).
-- Multi-Vector Face Recognition (Diverse angles cached per student).
-- "Pulse Window" Heartbeat Logic (100% accurate presence time).
-- Handling of "Unknown" faces (Visitor tracking).
+- Multi-Vector Embedding Cache: system learns each student across sessions (persistent per-section cache).
+- "Pulse Window" Heartbeat Logic (100% accurate presence time with interval tracking).
+- Handling of "Unknown" faces (Visitor tracking with image snapshots).
 - Session-based Architecture with SQL Persistence.
+- AI Orchestrator Log: real-time commentary on every recognition decision via the web dashboard.
 
 2. FILE STRUCTURE & CORE COMPONENTS
 -----------------------------------
@@ -82,15 +83,23 @@ Tables:
 3. session_attendance:
    - id, session_id, session_name, student_id, status (Present/Absent), last_seen.
 
-4. unknown_detections:
+4. attendance_intervals:
+   - id, session_id, student_id, start_time, end_time.
+   - One row per continuous presence window. Used for generating per-student time-in-room metrics.
+
+5. unknown_detections:
    - id, session_id, session_name, track_id, image_path (Path to saved face).
 
 6. DATA FOLDERS
 ---------------
-- data/embeddings/      : Stores face signatures per section (.pkl).
-- data/persistent_cache/: Stores reduced caches for faster startup.
-- data/unknown_faces/   : Stores images of unrecognized people.
-- data/exports/         : Stores recorded session videos.
+- data/embeddings/         : Master face signatures per section (.pkl) — written at registration.
+- data/section_caches/     : Per-section learning cache (.pkl) — auto-updated every session.
+                             This is the "system learning" store. One file per section, e.g. CSE_A.pkl.
+                             Built from live embeddings; speeds up recognition for returning students.
+- data/unknown_faces/      : Snapshots of unrecognized individuals (jpg, one per detection).
+- data/exports/            : Recorded session videos (when --export flag is used).
+- data/slm_events.json     : Live JSON feed consumed by the AI Orchestrator Log in the web dashboard.
+                             Written by main.py on every significant recognition event.
 
 ================================================================================
     For further assistance, view the source code in `main.py` or `core/`.

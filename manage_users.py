@@ -106,21 +106,24 @@ def delete_user(db):
     else:
         print(f"[System] Section file {section_file} not found.")
 
-    # 3. Scrub from Persistent Caches
-    cache_dir = "data/persistent_cache"
-    if os.path.exists(cache_dir):
-        scrub_count = 0
-        for fname in os.listdir(cache_dir):
-            if fname.startswith(f"cache_{section}_") and fname.endswith(".pkl"):
-                fpath = os.path.join(cache_dir, fname)
-                try:
-                    with open(fpath, 'rb') as f: cache_data = pickle.load(f)
-                    if student_id in cache_data:
-                        del cache_data[student_id]
-                        with open(fpath, 'wb') as f: pickle.dump(cache_data, f)
-                        scrub_count += 1
-                except: pass
-        print(f"[System] Scrubbed '{student_id}' from {scrub_count} persistent cache files.")
+    # 3. Scrub from Section Cache (data/section_caches/<section>.pkl)
+    SECTION_CACHE_DIR = "data/section_caches"
+    section_cache_path = os.path.join(SECTION_CACHE_DIR, f"{section}.pkl")
+    if os.path.exists(section_cache_path):
+        try:
+            with open(section_cache_path, 'rb') as f:
+                cache_data = pickle.load(f)
+            if student_id in cache_data:
+                del cache_data[student_id]
+                with open(section_cache_path, 'wb') as f:
+                    pickle.dump(cache_data, f)
+                print(f"[System] Scrubbed '{student_id}' from section cache: {section_cache_path}")
+            else:
+                print(f"[System] '{student_id}' was not in section cache (already clean).")
+        except Exception as e:
+            print(f"[Error] Failed to scrub section cache: {e}")
+    else:
+        print(f"[System] No section cache found for '{section}' (nothing to scrub).")
 
     print(f"Successfully deleted '{student_id}' from all records.")
 
@@ -186,15 +189,14 @@ def manage_sections(db):
                 else:
                     print(f"File {path} not found.")
                 
-                # 3. Delete Persistent Caches
-                cache_dir = "data/persistent_cache"
-                if os.path.exists(cache_dir):
-                    count = 0
-                    for f in os.listdir(cache_dir):
-                        if f.startswith(f"cache_{name}_"):
-                            os.remove(os.path.join(cache_dir, f))
-                            count += 1
-                    print(f"Deleted {count} cache files.")
+                # 3. Delete Section Cache
+                SECTION_CACHE_DIR = "data/section_caches"
+                section_cache_path = os.path.join(SECTION_CACHE_DIR, f"{name}.pkl")
+                if os.path.exists(section_cache_path):
+                    os.remove(section_cache_path)
+                    print(f"[System] Deleted section cache: {section_cache_path}")
+                else:
+                    print(f"[System] No section cache found for '{name}' (nothing to delete).")
             else:
                 print("Deletion cancelled.")
         
