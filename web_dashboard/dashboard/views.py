@@ -368,6 +368,42 @@ def slm_events(request):
     return JsonResponse({"events": []})
 
 
+def latest_report(request):
+    """Returns the most recent AI generated semantic report from the background worker."""
+    reports_dir = os.path.join(PROJECT_ROOT, "data/ai_reports")
+    status_file = os.path.join(reports_dir, ".generating")
+    
+    # Check if a background worker is actively generating
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, "r") as f:
+                session_name = f.read().strip()
+                return JsonResponse({"status": "generating", "session": session_name})
+        except: pass
+        
+    if not os.path.exists(reports_dir):
+        return JsonResponse({"status": "empty"})
+        
+    # Get the latest markdown file
+    md_files = [f for f in os.listdir(reports_dir) if f.endswith(".md")]
+    if not md_files:
+        return JsonResponse({"status": "empty"})
+        
+    md_files.sort(key=lambda x: os.path.getmtime(os.path.join(reports_dir, x)), reverse=True)
+    latest = md_files[0]
+    
+    try:
+        with open(os.path.join(reports_dir, latest), "r") as f:
+            content = f.read()
+        return JsonResponse({
+            "status": "ready",
+            "filename": latest,
+            "content": content
+        })
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
 # ============================================
 # MP4 PROCESSING ENDPOINTS
 # ============================================

@@ -7,6 +7,10 @@ import time
 import numpy as np
 import pickle
 import json
+import requests
+import subprocess
+import sys
+from datetime import datetime
 from ultralytics import YOLO
 from insightface.app import FaceAnalysis
 from core.db_manager import DBManager
@@ -46,8 +50,7 @@ def emit_slm_event(event_type, data=None):
         "ts": time.strftime("%H:%M:%S")
     }
     slm_events.append(event)
-    if len(slm_events) > 50:
-        slm_events = slm_events[-50:]
+    # Allow infinite growth during session for the final batch report
     try:
         with open(SLM_EVENTS_FILE, "w") as f:
             json.dump(slm_events, f)
@@ -363,7 +366,11 @@ def main():
             print(f"Did you mean? {', '.join(available_sections)}")
          return
 
-    session_name = args.session or f"Session_{int(time.time())}"
+    session_ts = int(time.time())
+    if args.session and args.session.strip():
+        session_name = f"{args.session.strip()}_{session_ts}"
+    else:
+        session_name = f"Session_{session_ts}"
     
     print(f"[System] Starting Session: {session_name} for Section: {section_name}")
     
@@ -721,5 +728,18 @@ def main():
                 os.remove(STREAM_PATH)
         except: pass
 
+        # FINAL NOVELTY: Trigger Tier 2 Deep Semantic SLM Batch Processing in background
+        if slm_events:
+            print("\n[System] Handoff telemetry to background AI Orchestrator...")
+            os.makedirs("data/ai_reports", exist_ok=True)
+            telemetry_path = f"data/ai_reports/{session_name}_telemetry_tmp.json"
+            try:
+                with open(telemetry_path, "w") as f:
+                    json.dump(slm_events, f)
+                # Fire and forget (detached process)
+                subprocess.Popen([sys.executable, "slm_worker.py", telemetry_path, session_name],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print(f"[System] Failed to launch background SLM worker: {e}")
 
 if __name__ == "__main__": main()

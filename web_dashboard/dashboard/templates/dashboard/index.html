@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOT Attendance Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --bg-color: #0a0a0f;
@@ -141,6 +142,65 @@
             font-size: 0.85rem;
             font-weight: 600;
             color: var(--text-secondary);
+        }
+        
+        /* ── AI Report Drawer ─────────────────────────────── */
+        .report-drawer {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: 700px;
+            background: #0d0f14;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 2100;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: -8px 0 40px rgba(0,0,0,0.6);
+        }
+        .report-drawer.open { transform: translateX(0); }
+        .report-content {
+            flex-grow: 1;
+            padding: 24px;
+            overflow-y: auto;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        /* Markdown Styling inside Drawer */
+        .report-content h1 { font-size: 1.6rem; margin-bottom: 24px; color: var(--accent); }
+        .report-content h2 { font-size: 1.3rem; margin-top: 24px; margin-bottom: 12px; color: #fff; }
+        .report-content h3 { font-size: 1.1rem; margin-top: 16px; margin-bottom: 8px; color: #ccc; }
+        .report-content p { margin-bottom: 16px; }
+        .report-content ul, .report-content ol { margin-left: 20px; margin-bottom: 16px; }
+        .report-content li { margin-bottom: 6px; }
+        .report-content strong { color: #fff; }
+        .report-content code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+
+        .report-generating {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .report-generating .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        .report-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            font-style: italic;
         }
         .ai-close-btn {
             background: none;
@@ -628,6 +688,10 @@
         style="display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--card-bg); border-bottom: 1px solid var(--border);">
         <h1 style="font-size: 18px; font-weight: 600;">📹 MOT Attendance</h1>
         <div style="display:flex;align-items:center;gap:10px;">
+            <!-- AI Reports toggle -->
+            <button class="ai-brain-btn" id="aiReportToggle" onclick="toggleReportDrawer()" title="View Session Reports">
+                📜 AI Reports
+            </button>
             <!-- AI Orchestrator Log toggle -->
             <button class="ai-brain-btn" id="aiDrawerToggle" onclick="toggleAiDrawer()" title="AI Orchestrator Log">
                 <span class="ai-dot" id="aiDot"></span>
@@ -658,6 +722,22 @@
         </div>
         <div class="ai-log" id="aiLog">
             <div class="ai-offline-msg">System offline. Start a session to activate the orchestrator.</div>
+        </div>
+    </div>
+
+    <!-- AI Reports Drawer -->
+    <div class="report-drawer" id="reportDrawer">
+        <div class="ai-drawer-header">
+            <div class="ai-drawer-title">
+                📜 Deep Semantic AI Report
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="ai-close-btn" style="font-size:14px; padding:4px 8px; border:1px solid var(--border); border-radius:4px;" onclick="pollReport()">↻ Refresh</button>
+                <button class="ai-close-btn" onclick="toggleReportDrawer()" title="Close">✕</button>
+            </div>
+        </div>
+        <div class="report-content" id="reportContent">
+            <div class="report-empty">Click 'Refresh' or generate a report first.</div>
         </div>
     </div>
 
@@ -1493,16 +1573,92 @@
         async function stopSession() {
             // Don't interfere with MP4 session
             if (systemBusy) return;
-            if (!confirm('Stop this session?')) return;
+            if (!confirm('Stop this session? The background SLM will generate the report automatically.')) return;
             userInitiatedStop = true;  // Prevent error modal
+            
+            // Show toast/loader message instead of locking UI
+            document.getElementById('sessionControls').style.display = 'none';
+            videoEl.style.display = 'none';
+            loaderMsg.style.display = 'block';
+            loaderText.style.opacity = 1;
+            loaderText.innerHTML = "⚡ Stopping Camera Edge Pipeline...<br/><span style='font-size:0.85rem;color:var(--text-secondary);'>Delegating telemetry to background Qwen2.5 SLM for report generation.</span>";
+            
+            const cdown = document.getElementById('loaderCountdown');
+            if (cdown && cdown.parentElement) cdown.parentElement.style.display = 'none';
+            if (loaderMsgInterval) { clearInterval(loaderMsgInterval); loaderMsgInterval = null; }
+
             try {
                 await fetch('/stop_session', { method: 'POST' });
-                stopPolling();
-                showOffline();
-                // Show hamburger again
-                document.querySelector('.hamburger-btn').style.display = 'block';
+                loaderText.innerHTML = "✅ Camera Off. AI Background Report queued!";
+                
+                // Immediately open the report drawer to show it's generating
+                setTimeout(() => {
+                    stopPolling();
+                    showOffline();
+                    if (cdown && cdown.parentElement) cdown.parentElement.style.display = '';
+                    document.querySelector('.hamburger-btn').style.display = 'block';
+                    
+                    // Show report drawer
+                    if (!document.getElementById('reportDrawer').classList.contains('open')) {
+                        toggleReportDrawer();
+                    }
+                }, 1500);
             } catch (e) {
                 console.error('Stop error:', e);
+                stopPolling();
+                showOffline();
+                if (cdown && cdown.parentElement) cdown.parentElement.style.display = '';
+                document.querySelector('.hamburger-btn').style.display = 'block';
+            }
+        }
+        
+        let reportPollInterval = null;
+        
+        function toggleReportDrawer() {
+            const drawer = document.getElementById('reportDrawer');
+            drawer.classList.toggle('open');
+            if (drawer.classList.contains('open')) {
+                pollReport();
+                // Optionally start auto-polling while open
+                if (!reportPollInterval) {
+                    reportPollInterval = setInterval(pollReport, 3000);
+                }
+            } else {
+                if (reportPollInterval) {
+                    clearInterval(reportPollInterval);
+                    reportPollInterval = null;
+                }
+            }
+        }
+        
+        async function pollReport() {
+            const content = document.getElementById('reportContent');
+            try {
+                const res = await fetch('/api/latest_report/');
+                const data = await res.json();
+                
+                if (data.status === 'generating') {
+                    content.innerHTML = `
+                        <div class="report-generating">
+                            <div class="spinner"></div>
+                            <h3>Background AI Orchestrator Running</h3>
+                            <p style="margin-top:10px;">Qwen2.5 is digesting telemetry for <strong>${data.session}</strong>...</p>
+                            <p style="font-size:0.8rem; opacity:0.7;">This takes 15-45s depending on class size. You can close this drawer, the class video feed is totally free!</p>
+                        </div>
+                    `;
+                } else if (data.status === 'ready') {
+                    // Render markdown securely via marked
+                    content.innerHTML = marked.parse(data.content);
+                    // Stop aggressive polling if ready
+                    if (reportPollInterval) {
+                        clearInterval(reportPollInterval);
+                        reportPollInterval = null;
+                    }
+                } else {
+                    content.innerHTML = '<div class="report-empty">No reports found. Generate one by starting/stopping a session.</div>';
+                }
+            } catch (e) {
+                content.innerHTML = `<div class="report-empty">Error loading reports: ${e}</div>`;
             }
         }
 

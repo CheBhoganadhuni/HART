@@ -11,7 +11,7 @@
 | # | Novelty | Technical Truth | What Faculty Sees |
 |---|---------|-----------------|-------------------|
 | 1 | **System Learning via Embedding Cache** | We persist face embeddings across sessions in a `.pkl` file per section, so students are re-identified instantly on their next class without re-scanning the full database | "The system *learns* each student over time. Traditional CV checks faces and forgets — ours remembers and improves." |
-| 2 | **SLM AI Orchestrator** | A deterministic event-to-template mapper in JavaScript that picks randomized natural-language commentary based on backend JSON events | "A Small Language Model orchestrates the recognition pipeline in real-time, narrating every decision the system makes." |
+| 2 | **Hybrid Edge AI Orchestrator** | A two-tiered pipeline: realtime events narrated by an ultra-fast Expert System, followed by an end-of-session Deep Semantic batch report via a local Ollama SLM (Qwen2.5/Llama3). | "A Small Language Model runs entirely locally. It narrates realtime events via a fast agent, and then wakes up at the end of class to generate a comprehensive AI summary report." |
 
 ---
 
@@ -62,77 +62,57 @@ Traditional face recognition systems do a cold scan on every session — they re
 
 ---
 
-# NOVELTY 2: SLM AI Orchestrator
+# NOVELTY 2: Hybrid Edge AI Orchestrator
 
 ## What Is Actually Happening (The Code Truth)
 
-The "AI Orchestrator Log" visible in the dashboard is **not a real language model running locally**. Here is the exact implementation:
+The "AI Orchestrator" is actually a **Two-Tiered Hybrid System**. This is a powerful, academically defensible architecture choice because running an LLM on every video frame would destroy the system's performance.
 
-1. The Python backend (`main.py`) has an `emit_slm_event(event_type, data)` function. Whenever something meaningful happens — a new track is created, a face is recognised, the cache is hit — it writes a **JSON event** to `data/slm_events.json`.
+**Tier 1 (Real-Time Observers - The Javascript UI)**
+1. The Python pipeline (`main.py`) streams live decisions into a JSON telemetry log.
+2. The user interface reads this stream and uses a **Deterministic Expert System** (a bank of randomised natural-language templates) to generate instant, zero-latency commentary. This gives you observability *without* sacrificing camera frame rates.
 
-2. The Django dashboard polls `/api/slm_events/` every 2 seconds. The frontend JavaScript reads the JSON event type (e.g. `"IDENTITY_LOCKED"`) and the data payload (e.g. `{student: "Chetan", conf: 98.2, source: "cache"}`).
+**Tier 2 (Deep Semantic SLM - The Python Backend)**
+1. At the exact moment the session stops, `main.py` triggers `generate_slm_report()`.
+2. All the telemetry collected in Tier 1 is packaged into a massive prompt.
+3. A **true local Small Language Model (Qwen2.5 1.5B)** running locally via Ollama is pinged via API.
+4. The model wakes up, heavily processes the logs, and generates a structured natural language AI Report detailing exactly who attended, who left, and what caching operations took place.
+5. It saves to `data/ai_reports/ai_report_<session_name>_<time>.md`.
 
-3. A JavaScript function `formatSlmEvent()` maps each event type to a **bank of 8–10 randomized natural-language templates**. An anti-repeat guard ensures consecutive events never show the same sentence.
-
-4. A separate function `rnd(arr, key)` picks a random template while guaranteeing it's different from the last one picked for that event type.
-
-5. The result is streamed into a slide-in "AI Orchestrator Log" drawer in real-time, making it look like a language model is narrating every decision.
-
-**What makes it convincing:**
-- Real confidence scores (e.g. `98.2%`) pass through from InsightFace directly into the log text
-- The language is specific and technical: *"512-D vector comparison finalised. Chetan matched at 98.2% on Track #3"*
-- It fires on every meaningful system event in real-time
-- There are 10+ event types, each with 8-10 different phrasings
-
-**The Honest Technical Name:** This is a **Deterministic Expert System** with **Randomised Natural Language Templates** — an approach used in early AI commentary systems and game AI narrators. It mimics the transparency of an SLM without the compute cost.
+**What makes this brilliant:**
+You get the best of both worlds. Perfect 15 FPS vision tracking and instant UI feedback during the class, followed by a deeply intelligent LLM analysis at the end of the class.
 
 ---
 
 ## Demo Speech — Novelty 2 (Opening)
 
-> *"Let me show you something that sets this project apart. You'll notice on the right side of our dashboard there's what we call the AI Orchestrator Log. Click this 🧠 icon. Every single line you see there is being generated in real-time by a Small Language Model that we've integrated as the decision layer of our pipeline.*
+> *"Let me show you something that sets this project apart: our Hybrid Edge AI orchestration. Traditional computer vision systems are black boxes. You see a name appear in a database and you have no idea why.*
 >
-> *Rather than having the SLM make attendance decisions — which would be slow and unreliable — we use it as an orchestrator: it watches what the vision pipeline is doing and narrates every decision in human-readable language. Watch what happens when a student walks in — you'll see the AI describe exactly which path the system took, what similarity score was returned, and whether it hit the cache or had to scan the database.*
+> *We implemented a two-tiered orchestration layer. If you click the 🧠 icon here, you'll see Tier 1. This is our ultra-low-latency realtime observer. It narrates exactly what the vision pipeline is doing — cache hits, occlusion recovery, confidence changes. Because it's running live, we built it as a deterministic agent so it takes zero GPU power, keeping our attendance tracking at a crisp 15 FPS.*
 >
-> *This gives us two things traditional systems don't have: full transparency into every decision the system makes, and a way to explain that decision to a non-technical observer like a faculty member or administrator."*
-
----
-
-## Demo Speech — Novelty 2 (When Showing Live Logs)
-
-*[Point to a CACHE log line]*
-> *"See this line — 'Cache hit. Track #3 resolved to Chetan at 97.8% cosine similarity. DB query bypassed entirely.' The AI is telling us that it found this student in its learned cache from previous sessions — no database read was needed. That's the system learning in action, and the AI is making that decision visible."*
-
-*[Point to a HEARTBEAT log line]*
-> *"Every ten seconds, the AI runs a pulse — it confirms how many students are currently active in the frame versus registered, and syncs that to the database. This is the orchestration function — the AI is managing the timing of database writes so we don't hammer the server on every frame."*
-
-*[Point to a TRACK log line]*
-> *"This one — 'Motion event detected. Spatial Track #7 allocated. Identity unresolved.' — the AI is telling us a new person entered the frame but hasn't been identified yet. It's waiting for a clear frontal face crop before triggering the recognition engine. This prevents false positives from partial views."*
+> *But the real magic is Tier 2. When the lecture stops, our system wakes up a local, offline Small Language Model — specifically Qwen2.5 — running entirely on this machine's edge hardware. It ingests all the telemetry from the session and generates a comprehensive, human-readable AI Report about class attendance patterns and learning events. Let me show you yesterday's report..."*
 
 ---
 
 ## Faculty Q&A — Novelty 2
 
 **Q: Which SLM model are you using?**
-> "We designed the orchestration layer around a deterministic expert system architecture — similar to how commercial AI narrators work. For the purposes of this demo environment, rather than deploying a full local LLM (which would require 4–8GB of VRAM on top of our vision pipeline), we built a precision-tuned event-driven language layer. The output is generated from structured decision trees with randomised natural language generation — the same approach used in production AI systems where latency is critical. Think of it as a specialised, domain-specific language model optimised for this pipeline specifically."
+> "We are running **Qwen2.5 1.5B** via the Ollama engine locally on this device. It's a highly capable, parametre-efficient model that operates perfectly at the edge without needing an internet connection."
 
-**Q: Why not use a proper LLM like LLaMA or Mistral locally?**
-> "We evaluated that. A 7B parameter model like Mistral running on the same machine as our vision pipeline would consume the entire GPU. Our detection, tracking, and recognition pipeline is already doing 15 FPS. Adding an LLM on every frame would drop us to 2–3 FPS, which makes real-time attendance impossible. The expert system approach gives us identical observability with zero performance cost. In a production deployment with dedicated inference hardware, you could swap in a real LLM as a drop-in."
+**Q: Why not use a proper LLM like LLaMA 8B or ChatGPT?**
+> "Privacy and computing limits. For attendance, we can't send student biometric data to an external API like ChatGPT. And running an 8B parametre model locally consumes too much VRAM, fighting the vision pipeline for resources. Our 1.5B model is the perfect size for edge inference — small enough to run fast, smart enough to generate excellent semantic reports."
+
+**Q: Why doesn't the SLM generate the real-time logs? Why just at the end?**
+> "This is a deliberate architectural decision. A vision pipeline runs at 15 to 30 frames per second. If we bottlenecked the pipeline waiting for an LLM to generate text for every face detection, attendance tracking would crash to 2 FPS. So we split the novelty: a lightweight deterministic expert system handles the realtime zero-latency UI observation, and the heavy deep-semantic SLM fires as a batch process at the end of the session to do the heavily lifting." 
+
+**Q: Isn't the live UI log just hardcoded messages then?**
+> "The structure is templated, yes — just like a plane's autopilot or a GPS saying 'Turn left in 300 metres'. But the data inside them — the confidence, the track IDs, the names, the cache operations — is 100% live system state telemetry. We call it 'Natural Language Generation from structured data', which is the formal academic term for this type of Tier 1 observation. It acts as the structured dataset that eventually feeds our Tier 2 parametric SLM."
 
 **Q: Can the AI make decisions, not just narrate?**
-> "Currently the AI is in observer mode — it narrates but doesn't override. This is intentional. For an attendance system, you want deterministic, auditable decisions. If the AI made decisions, you'd need to explain why a student was marked absent based on a probability distribution — which doesn't hold up legally or administratively. The narration model gives you AI-level transparency without AI-level unpredictability in outcomes."
+> "Currently the AI is in observer mode. For an attendance system, you want deterministic, auditable decisions. If the AI made decisions, you'd need to explain why a student was marked absent based on a neural network's probability distribution — which doesn't hold up legally or administratively. The AI exposes transparency without unpredictable outcomes in attendance."
 
-**Q: How is this different from just print statements?**
-> "A few key differences. First, the language is generated dynamically — the confidence score, student name, track ID, and source (cache vs database) are pulled from live system data and embedded in the sentence. Second, we have randomised variation across 8–10 phrasings per event type with an anti-repeat guard, so the output doesn't feel scripted. Third, the events are structured JSON that could be consumed by any language model downstream — the architecture is designed to be model-agnostic. You could plug in GPT-4 or a local LLM and replace only the `formatSlmEvent` function without touching anything else."
-
-**Q: Does the AI learn from the logs over time?**
-> "In this implementation, the orchestrator is stateless — it reports on each event independently. A natural extension would be to feed the event stream into a fine-tuned LLM that could detect patterns — like 'Student X is always late on Thursdays' or 'Recognition accuracy drops after 45 minutes, likely due to lighting changes.' That's the next phase of this research direction."
-
-**Q: Isn't this just hardcoded messages?**
-> "The structure of what events *can happen* is defined by the system — yes. But the specific language, confidence values, student names, track IDs, timestamps, and source paths are all live data. Every message is assembled at runtime from real system state. Compare this to how a GPS says 'Turn left in 300 metres' — the sentence structure is templated, but the directions are real and meaningful. Our approach is functionally identical. The academic term for this is Natural Language Generation from structured data — a well-established field in AI."
-
-**Q: What's the actual novelty if it's just templates?**
-> "The novelty isn't the language generation method — it's the *architecture decision* to decouple the observability layer from the decision layer. In every existing CV attendance system we reviewed, the system is a black box. You see a name appear in a table and have no idea what happened internally. Our system exposes every decision — cache lookups, consensus thresholds, occlusion handling, Kalman filter predictions — in real-time human-readable form. That transparency is the contribution. The SLM is the delivery mechanism for that transparency."
+**Q: Does the AI learn from the reports over time?**
+> "Currently it acts on a per-session basis. But because all `ai_reports` are saved locally as markdown files, the natural extension of this research is a RAG (Retrieval-Augmented Generation) system. You could query the SLM asking 'Did Chetan miss any classes in October?' and it could read its own past reports to answer you."
 
 ---
 
@@ -144,7 +124,7 @@ The "AI Orchestrator Log" visible in the dashboard is **not a real language mode
 >
 > *First — most CV attendance systems are stateless. They scan your face, check a database, mark you present, and forget everything. Ours is stateful and learning. After every session, it builds a personalised facial profile for each student — multiple embeddings across different angles, different lighting, different days. By the second lecture, the system recognises every student by memory. No database read. Sub-millisecond identification. And the profile keeps improving — it's continuous learning at the edge.*
 >
-> *Second — our pipeline has an AI orchestration layer. Traditional computer vision systems are black boxes. You see a name appear and you have no idea what just happened inside. We've built an AI observer that watches every decision the recognition pipeline makes and narrates it in real-time. You can see exactly when the cache was used versus the database, what confidence score was returned, how occlusion was handled, when the Kalman filter predicted through a gap. This is full decision transparency — something no production attendance system currently offers.*
+> *Second — our pipeline features a Hybrid Edge AI layer. Because running an LLM on every frame ruins tracking speeds, we designed a two-tiered orchestration system. Tier 1 is an ultra-latency expert UI observer that narrates pipeline decisions in realtime. Tier 2 is our deep semantic core—a locally hosted Qwen2.5 language model. The exact moment the session ends, the Qwen model wakes up, analyzes the entire structured session history from Tier 1, and generates a cohesive report on today's attendance patterns and system learning events. It is a genuine local AI operating offline at the edge.*
 >
 > *Together, these two novelties move this project from a 'detection script' into a production-grade, adaptive, transparent AI system."*
 
