@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>HART – Human-Aware Re-Identification and Tracking | RGUKT Nuzvid</title>
+  <meta name="description" content="A real-time biometric attendance management system combining YOLOv11n person detection, BoT-SORT multi-object tracking, and InsightFace face recognition. RGUKT Nuzvid B.Tech Project 2025–26." />
+  <meta name="keywords" content="face recognition, attendance system, YOLOv11, InsightFace, BoT-SORT, deep learning, multi-object tracking, RGUKT, computer vision" />
+  <meta property="og:title" content="HART – Human-Aware Re-Identification and Tracking" />
+  <meta property="og:description" content="Real-time biometric attendance using YOLOv11n + InsightFace + BoT-SORT. 97.1% accuracy across 126 sessions." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="static/images/social_preview.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="HART – Human-Aware Re-Identification and Tracking" />
+  <meta name="twitter:description" content="Real-time biometric attendance using YOLOv11n + InsightFace + BoT-SORT." />
+  <meta name="twitter:image" content="static/images/social_preview.png" />
+  <link rel="icon" href="static/images/favicon.ico" type="image/x-icon" />
+  <meta name="citation_title" content="Human-Aware Re-Identification and Tracking" />
+  <meta name="citation_author" content="K. Harshitha" />
+  <meta name="citation_author" content="Ch. Rajeswari" />
+  <meta name="citation_author" content="B. Chethan" />
+  <meta name="citation_author" content="Sk. Akhil" />
+  <meta name="citation_date" content="2026" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <style>
+    /* ═══════════════════════════════════════════════════
+       TOKENS
+    ═══════════════════════════════════════════════════ */
+    :root {
+      --bg:        #060912;
+      --surface:   #0d1117;
+      --surface2:  #161b27;
+      --border:    rgba(255,255,255,.07);
+      --accent:    #4f8ef7;
+      --accent2:   #a78bfa;
+      --accent3:   #34d399;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --radius:    14px;
+      --glow:      0 0 40px rgba(79,142,247,.18);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       NOISE OVERLAY
+    ═══════════════════════════════════════════════════ */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: .5;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       NAV
+    ═══════════════════════════════════════════════════ */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      height: 60px;
+      background: rgba(6,9,18,.8);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      font-weight: 800;
+      font-size: .95rem;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: .08em;
+    }
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: .82rem;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color .2s;
+      letter-spacing: .04em;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    /* ═══════════════════════════════════════════════════
+       HERO
+    ═══════════════════════════════════════════════════ */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      overflow: hidden;
+    }
+
+    /* Gradient orbs */
+    .hero::before {
+      content: '';
+      position: absolute;
+      width: 700px; height: 700px;
+      top: -200px; left: 50%;
+      transform: translateX(-50%);
+      background: radial-gradient(ellipse, rgba(79,142,247,.22) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      width: 500px; height: 500px;
+      bottom: -150px; right: -100px;
+      background: radial-gradient(ellipse, rgba(167,139,250,.14) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-inner { position: relative; z-index: 1; max-width: 860px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(79,142,247,.1);
+      border: 1px solid rgba(79,142,247,.28);
+      color: #93c5fd;
+      border-radius: 999px;
+      padding: 5px 16px;
+      font-size: .75rem;
+      font-weight: 500;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+    .badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .5; transform: scale(.7); }
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5.5vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -.02em;
+      background: linear-gradient(160deg, #ffffff 30%, #93c5fd 70%, #c4b5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin-bottom: 36px;
+      line-height: 1.6;
+    }
+    .subtitle em {
+      color: #94a3b8;
+      font-style: normal;
+    }
+
+    /* Authors */
+    .authors {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px 24px;
+      margin-bottom: 12px;
+    }
+    .author {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .author-name {
+      font-size: .88rem;
+      font-weight: 500;
+      color: #cbd5e1;
+    }
+    .author-roll {
+      font-size: .72rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .guide-line {
+      font-size: .82rem;
+      color: var(--muted);
+      margin-bottom: 36px;
+    }
+    .guide-line span {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    /* Action buttons */
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 56px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-size: .875rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all .2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 24px rgba(79,142,247,.35);
+    }
+    .btn-primary:hover {
+      background: #6ba3f8;
+      box-shadow: 0 6px 30px rgba(79,142,247,.5);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      background: rgba(255,255,255,.1);
+      border-color: rgba(255,255,255,.15);
+      transform: translateY(-1px);
+    }
+
+    /* Stats strip */
+    .stats-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface2);
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    .stat-item {
+      flex: 1;
+      min-width: 130px;
+      padding: 18px 20px;
+      text-align: center;
+      background: rgba(255,255,255,.02);
+    }
+    .stat-item + .stat-item {
+      border-left: 1px solid var(--border);
+    }
+    .stat-value {
+      font-size: 1.55rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+    .stat-label {
+      font-size: .72rem;
+      color: var(--muted);
+      margin-top: 4px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    /* Scroll cue */
+    .scroll-cue {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: .72rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      animation: fade-up 2s ease-in-out infinite;
+    }
+    .scroll-cue i { font-size: .85rem; }
+    @keyframes fade-up {
+      0%, 100% { opacity: .3; transform: translateX(-50%) translateY(0); }
+      50%       { opacity: .7; transform: translateX(-50%) translateY(-5px); }
+    }
+
+    /* ═══════════════════════════════════════════════════
+       SECTIONS
+    ═══════════════════════════════════════════════════ */
+    section {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+
+    .section-tag {
+      display: inline-block;
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 700;
+      letter-spacing: -.02em;
+      color: #f1f5f9;
+      margin-bottom: 18px;
+      line-height: 1.25;
+    }
+
+    .divider {
+      width: 100%;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Fade-in on scroll */
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity .7s ease, transform .7s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       ARCHITECTURE FIGURE
+    ═══════════════════════════════════════════════════ */
+    .figure-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--glow);
+    }
+    .figure-card img {
+      width: 100%;
+      display: block;
+    }
+    .figure-caption {
+      padding: 14px 20px;
+      font-size: .82rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      line-height: 1.6;
+    }
+    .figure-caption strong { color: #94a3b8; }
+
+    /* ═══════════════════════════════════════════════════
+       ABSTRACT
+    ═══════════════════════════════════════════════════ */
+    .abstract-text {
+      font-size: .97rem;
+      line-height: 1.85;
+      color: #94a3b8;
+      text-align: justify;
+    }
+    .abstract-text + .abstract-text { margin-top: 16px; }
+    .abstract-text strong { color: #cbd5e1; }
+
+    /* ═══════════════════════════════════════════════════
+       PIPELINE GRID
+    ═══════════════════════════════════════════════════ */
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+    .pipeline-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color .25s, transform .25s, box-shadow .25s;
+    }
+    .pipeline-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      opacity: 0;
+      transition: opacity .25s;
+    }
+    .pipeline-card:hover {
+      border-color: rgba(79,142,247,.3);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    }
+    .pipeline-card:hover::before { opacity: 1; }
+
+    .card-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: rgba(79,142,247,.12);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent);
+      font-size: 1rem;
+      margin-bottom: 14px;
+    }
+    .pipeline-card h3 {
+      font-size: .95rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: 6px;
+    }
+    .pipeline-card p {
+      font-size: .82rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       TECH PILLS
+    ═══════════════════════════════════════════════════ */
+    .tech-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pill {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 500;
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      color: #94a3b8;
+    }
+    .pill.blue   { background: rgba(79,142,247,.1);  border-color: rgba(79,142,247,.25);  color: #93c5fd; }
+    .pill.purple { background: rgba(167,139,250,.1); border-color: rgba(167,139,250,.25); color: #c4b5fd; }
+    .pill.green  { background: rgba(52,211,153,.1);  border-color: rgba(52,211,153,.25);  color: #6ee7b7; }
+
+    /* ═══════════════════════════════════════════════════
+       RESULTS TABLE
+    ═══════════════════════════════════════════════════ */
+    .table-wrap {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .875rem;
+    }
+    thead th {
+      background: rgba(79,142,247,.12);
+      color: #93c5fd;
+      padding: 12px 18px;
+      font-weight: 600;
+      font-size: .78rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 11px 18px;
+      color: #94a3b8;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td:last-child {
+      color: #e2e8f0;
+      font-weight: 500;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .82rem;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255,255,255,.02); }
+    .highlight-row td { background: rgba(79,142,247,.07) !important; }
+    .highlight-row td:last-child { color: var(--accent3) !important; }
+
+    /* ═══════════════════════════════════════════════════
+       SCREENSHOT GALLERY
+    ═══════════════════════════════════════════════════ */
+    .gallery {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .gallery-full { grid-column: span 2; }
+    .gallery-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color .25s, box-shadow .25s;
+    }
+    .gallery-item:hover {
+      border-color: rgba(79,142,247,.3);
+      box-shadow: var(--glow);
+    }
+    .gallery-item img {
+      width: 100%;
+      display: block;
+    }
+    .gallery-label {
+      padding: 12px 16px;
+      font-size: .78rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .gallery-label i { color: var(--accent); }
+
+    /* ═══════════════════════════════════════════════════
+       BIBTEX
+    ═══════════════════════════════════════════════════ */
+    .bibtex-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .bibtex-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bibtex-header span {
+      font-size: .75rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: .05em;
+    }
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: .75rem;
+      cursor: pointer;
+      transition: all .2s;
+      font-family: 'Inter', sans-serif;
+    }
+    .copy-btn:hover { background: rgba(255,255,255,.1); color: var(--text); }
+    .bibtex-body {
+      padding: 20px 22px;
+      overflow-x: auto;
+    }
+    .bibtex-body pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .8rem;
+      color: #64748b;
+      line-height: 1.8;
+      white-space: pre-wrap;
+    }
+    .bibtex-body pre .k { color: #93c5fd; }
+    .bibtex-body pre .s { color: #6ee7b7; }
+    .bibtex-body pre .f { color: #c4b5fd; }
+
+    /* ═══════════════════════════════════════════════════
+       FOOTER
+    ═══════════════════════════════════════════════════ */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 36px 24px;
+      text-align: center;
+      color: var(--muted);
+      font-size: .8rem;
+    }
+    footer p + p { margin-top: 6px; }
+    footer a { color: var(--muted); text-decoration: none; transition: color .2s; }
+    footer a:hover { color: #94a3b8; }
+
+    /* ═══════════════════════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════════════════════ */
+    @media (max-width: 640px) {
+      nav { padding: 0 16px; }
+      .nav-links { display: none; }
+      h1 { font-size: 1.8rem; }
+      .gallery { grid-template-columns: 1fr; }
+      .gallery-full { grid-column: span 1; }
+      .stat-item + .stat-item { border-left: none; border-top: 1px solid var(--border); }
+      .stats-strip { flex-direction: column; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── NAV ──────────────────────────────────────────────────── -->
+  <nav>
+    <div class="nav-logo">HART</div>
+    <ul class="nav-links">
+      <li><a href="#abstract">Abstract</a></li>
+      <li><a href="#pipeline">Pipeline</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#bibtex">BibTeX</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── HERO ─────────────────────────────────────────────────── -->
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="badge">
+        <span class="dot"></span>
+        B.Tech Final Year Project &nbsp;·&nbsp; CSE &nbsp;·&nbsp; RGUKT Nuzvid 2025–26
+      </div>
+
+      <h1>Human-Aware Re-Identification<br />and Tracking</h1>
+
+      <p class="subtitle">
+        Real-Time Biometric Attendance Management System<br />
+        <em>Rajiv Gandhi University of Knowledge Technologies – Nuzvid</em>
+      </p>
+
+      <div class="authors">
+        <div class="author">
+          <span class="author-name">K. Harshitha</span>
+          <span class="author-roll">N200373</span>
+        </div>
+        <div class="author">
+          <span class="author-name">Ch. Rajeswari</span>
+          <span class="author-roll">N200427</span>
+        </div>
+        <div class="author">
+          <span class="author-name">B. Chethan</span>
+          <span class="author-roll">N200518</span>
+        </div>
+        <div class="author">
+          <span class="author-name">Sk. Akhil</span>
+          <span class="author-roll">N200145</span>
+        </div>
+      </div>
+
+      <p class="guide-line">Under the guidance of <span>Y. Kalavathi</span>, Dept. of CSE</p>
+
+      <div class="actions">
+        <a class="btn btn-primary" id="link-paper" href="report.pdf" download="HART_Report.pdf">
+          <i class="fas fa-file-pdf"></i> Download Report
+        </a>
+        <a class="btn btn-ghost" id="link-code" href="https://github.com/CheBhoganadhuni/HART" target="_blank" rel="noopener">
+          <i class="fab fa-github"></i> GitHub
+        </a>
+        <a class="btn btn-ghost" id="link-results" href="#results">
+          <i class="fas fa-chart-bar"></i> Results
+        </a>
+      </div>
+
+      <!-- Key stats -->
+      <div class="stats-strip">
+        <div class="stat-item">
+          <div class="stat-value">97.1%</div>
+          <div class="stat-label">Recognition Accuracy</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">126</div>
+          <div class="stat-label">Sessions Evaluated</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">3.2s</div>
+          <div class="stat-label">Avg. Lock Time</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">30 FPS</div>
+          <div class="stat-label">Live Detection</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scroll-cue">
+      <i class="fas fa-chevron-down"></i>
+      Scroll
+    </div>
+  </div>
+
+  <!-- ── ARCHITECTURE TEASER ──────────────────────────────────── -->
+  <div style="max-width:960px;margin:0 auto;padding:0 24px 80px;">
+    <div class="figure-card reveal">
+      <img src="assets/Architecture_Final.jpg"
+           alt="System Architecture – Phase 2c layered pipeline." loading="lazy" />
+      <div class="figure-caption">
+        <strong>System Architecture (Phase 2c).</strong>
+        Layered pipeline from live webcam / MP4 input through YOLOv11n detection,
+        BoT-SORT tracking, InsightFace recognition, and Ollama SLM reporting to a Django web dashboard.
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── ABSTRACT ─────────────────────────────────────────────── -->
+  <section id="abstract">
+    <div class="reveal">
+      <div class="section-tag">Overview</div>
+      <h2>Abstract</h2>
+    </div>
+    <div class="reveal">
+      <p class="abstract-text">
+        This project presents a real-time biometric attendance management system that integrates
+        computer vision, deep learning, and a web-based interface to fully automate student
+        attendance in classroom environments. The system combines <strong>multi-object person
+        detection</strong> (YOLOv11n), <strong>persistent tracking</strong> (BoT-SORT with
+        Kalman filtering), and <strong>face recognition</strong> (InsightFace Buffalo_L, 512-D
+        ArcFace embeddings) into a unified pipeline capable of processing both live webcam feeds
+        and uploaded MP4 recordings through a single platform.
+      </p>
+      <p class="abstract-text" style="margin-top:16px;">
+        A two-tier matching strategy — session cache (threshold 0.50) plus full database lookup
+        (threshold 0.45) — combined with a <strong>consensus-based locking mechanism</strong>
+        reduces false positives from single-frame noise. Adaptive shadow updates continuously
+        refine embeddings throughout each session. Attendance is logged via a
+        <strong>10-second heartbeat mechanism</strong> recording precise entry/exit intervals
+        per student. An SLM Orchestration pipeline (<strong>Ollama Qwen2.5:1.5b</strong>,
+        fully on-device) generates structured Markdown session reports post-session, with no
+        external API dependency. The system achieved <strong>97.1% recognition accuracy</strong>
+        across 126 evaluated sessions with 34 enrolled students.
+      </p>
+      <div class="tech-pills" style="margin-top:22px;">
+        <span class="pill blue">YOLOv11n</span>
+        <span class="pill blue">InsightFace</span>
+        <span class="pill blue">BoT-SORT</span>
+        <span class="pill purple">Ollama Qwen2.5</span>
+        <span class="pill purple">Django 6.0</span>
+        <span class="pill green">SQLite WAL</span>
+        <span class="pill green">MJPEG Stream</span>
+        <span class="pill">Python 3.12</span>
+        <span class="pill">OpenCV</span>
+        <span class="pill">NumPy</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── PIPELINE ──────────────────────────────────────────────── -->
+  <section id="pipeline">
+    <div class="reveal">
+      <div class="section-tag">Method</div>
+      <h2>System Pipeline</h2>
+    </div>
+    <div class="pipeline-grid">
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-camera"></i></div>
+        <h3>Video Input</h3>
+        <p>Live USB webcam or uploaded MP4 via Django dashboard. AsyncVideoStream thread reads frames into a bounded queue of max size 64 at 30 FPS.</p>
+      </div>
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-person-running"></i></div>
+        <h3>Person Detection</h3>
+        <p>YOLOv11n (nano) with class-0-only filtering. Adaptive thresholds: 0.30 (front 65% of frame) / 0.15 (rear zone) for depth-aware detection.</p>
+      </div>
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-route"></i></div>
+        <h3>Multi-Object Tracking</h3>
+        <p>BoT-SORT with Kalman prediction and Hungarian assignment. Persistent integer track IDs across occlusions. Custom Re-ID replaces built-in module.</p>
+      </div>
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-fingerprint"></i></div>
+        <h3>Face Recognition</h3>
+        <p>InsightFace Buffalo_L extracts 512-D ArcFace embeddings. Two-tier cosine similarity matching with 5-frame rolling consensus before identity lock.</p>
+      </div>
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-heartbeat"></i></div>
+        <h3>Heartbeat Logging</h3>
+        <p>10-second pulse atomically resets attendance → marks present IDs. Entry/exit intervals tracked in SQLite WAL with per-student duration analytics.</p>
+      </div>
+
+      <div class="pipeline-card reveal">
+        <div class="card-icon"><i class="fas fa-robot"></i></div>
+        <h3>AI Reporting</h3>
+        <p>Post-session, Ollama Qwen2.5:1.5b generates Markdown narrative from telemetry JSON. Fully on-device — no cloud, no GPU required for inference.</p>
+      </div>
+
+    </div>
+
+    <!-- Flowchart -->
+    <div class="figure-card reveal" style="margin-top:32px;">
+      <img src="assets/Flowchart_Final.jpg"
+           alt="High-level system flowchart." loading="lazy" />
+      <div class="figure-caption">
+        <strong>System Flowchart.</strong>
+        Complete process flow from session initialization through face recognition,
+        attendance marking, interval tracking, to final AI report generation.
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── RESULTS ───────────────────────────────────────────────── -->
+  <section id="results">
+    <div class="reveal">
+      <div class="section-tag">Evaluation</div>
+      <h2>Experimental Results</h2>
+      <p style="color:var(--muted);font-size:.9rem;margin-bottom:28px;line-height:1.7;">
+        Evaluated across <strong style="color:#94a3b8;">126 sessions</strong> with
+        <strong style="color:#94a3b8;">34 enrolled students</strong> in section CSE_1.
+        A controlled evaluation session verified recognition outcomes against ground truth.
+      </p>
+    </div>
+
+    <div class="table-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Total Students Enrolled (Section CSE_1)</td><td>34</td></tr>
+          <tr><td>Total Sessions Conducted</td><td>126</td></tr>
+          <tr><td>True Positives (Correctly Identified)</td><td>33</td></tr>
+          <tr><td>False Positives (Wrong Identity Assigned)</td><td>1</td></tr>
+          <tr><td>False Negatives (Not Identified / Missed)</td><td>0</td></tr>
+          <tr class="highlight-row"><td>Recognition Accuracy</td><td>97.1%</td></tr>
+          <tr><td>Avg. Recognition Confidence (cosine similarity)</td><td>0.62</td></tr>
+          <tr><td>Average Time to Identity Lock</td><td>3.2 s</td></tr>
+          <tr><td>Presence Intervals Logged</td><td>54</td></tr>
+          <tr><td>Average Presence Duration per Interval</td><td>42.3 min</td></tr>
+          <tr><td>Unknown Detections Logged</td><td>148</td></tr>
+          <tr><td>Avg. Processing FPS — Live Webcam</td><td>18 FPS</td></tr>
+          <tr><td>Avg. Processing FPS — MP4 Mode</td><td>24 FPS</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Screenshot gallery -->
+    <div class="gallery" style="margin-top:28px;">
+      <div class="gallery-item gallery-full reveal">
+        <img src="screenshot_dashboard.png" alt="Live Dashboard" loading="lazy" />
+        <div class="gallery-label">
+          <i class="fas fa-display"></i>
+          <strong>Live Dashboard</strong> — Real-time MJPEG stream, attendance table refreshing every 2 s, presence stats panel
+        </div>
+      </div>
+      <div class="gallery-item reveal">
+        <img src="screenshot_reports.png" alt="Session Report" loading="lazy" />
+        <div class="gallery-label">
+          <i class="fas fa-table"></i>
+          <strong>Session Report</strong> — Entry/exit intervals, duration, CSV export
+        </div>
+      </div>
+      <div class="gallery-item reveal">
+        <img src="screenshot_aireport.png" alt="AI Report" loading="lazy" />
+        <div class="gallery-label">
+          <i class="fas fa-robot"></i>
+          <strong>AI Report</strong> — Ollama Qwen2.5:1.5b session narrative
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ── BIBTEX ────────────────────────────────────────────────── -->
+  <section id="bibtex">
+    <div class="reveal">
+      <div class="section-tag">Citation</div>
+      <h2>BibTeX</h2>
+    </div>
+    <div class="bibtex-box reveal">
+      <div class="bibtex-header">
+        <span>bibtex · HART 2026</span>
+        <button class="copy-btn" onclick="copyBibtex()">
+          <i class="fas fa-copy"></i> Copy
+        </button>
+      </div>
+      <div class="bibtex-body">
+        <pre id="bibtex-block"><span class="k">@misc</span>{<span class="f">harshitha2026hart</span>,
+  <span class="k">title</span>        = {<span class="s">Human-Aware Re-Identification and Tracking</span>},
+  <span class="k">author</span>       = {<span class="s">Harshitha, K. and Rajeswari, Ch. and
+                  Chethan, B. and Akhil, Sk.</span>},
+  <span class="k">year</span>         = {<span class="s">2026</span>},
+  <span class="k">howpublished</span> = {<span class="s">B.Tech Project Report, Dept. of CSE,
+                  RGUKT -- Nuzvid</span>},
+  <span class="k">note</span>         = {<span class="s">Under the guidance of Y.~Kalavathi</span>}
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ────────────────────────────────────────────────── -->
+  <footer>
+    <p>
+      Page template based on the
+      <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank" rel="noopener">Academic Project Page Template</a>
+      · Licensed
+      <a href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>
+    </p>
+    <p>
+      Department of Computer Science &amp; Engineering ·
+      Rajiv Gandhi University of Knowledge Technologies – Nuzvid ·
+      Academic Session 2025–26
+    </p>
+  </footer>
+
+  <script>
+    /* Scroll reveal */
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          observer.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    /* BibTeX copy */
+    function copyBibtex() {
+      const raw = document.getElementById('bibtex-block').innerText;
+      navigator.clipboard.writeText(raw).then(() => {
+        const btn = document.querySelector('.copy-btn');
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        btn.style.color = '#6ee7b7';
+        setTimeout(() => {
+          btn.innerHTML = '<i class="fas fa-copy"></i> Copy';
+          btn.style.color = '';
+        }, 2000);
+      });
+    }
+  </script>
+
+</body>
+</html>
